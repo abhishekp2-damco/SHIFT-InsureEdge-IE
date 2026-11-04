@@ -21,6 +21,24 @@ feature, fix a bug, or make a notable change — newest entry at the top.
 
 ---
 
+## 2026-11-04 — Abhishek
+
+**Area:** DB / Backend / Frontend
+
+Individual Policy QA fixes (IP-01 – IP-28; IP-03 and IP-05 blocked). Details, QA data checks and open items: `POLICY_SUMMARY_OPEN_ISSUES.md`.
+
+- `049_bound_transaction_type.sql`: **run before or with the API deploy**, or Bind fails.
+- **One source for policy ID and status:** `PolicyRules` and `CurrentPolicyIdAsync` pick the current row of a policy number for the list, KPIs and every sub-screen. View Policy overlays identity and status from the policy and loads the real submission.
+- **Data safety:** a wizard save can no longer change an issued policy (status, account, insured).
+- **Date bug:** issuing swapped month and day on policy dates (`PolicyRules.ParseFormDate`).
+- **History and Timeline:** Bind, Issue and Issue Endorsement now record events.
+- **Producers:** Tools shows only Endorse, Notes are read-only, enforced by `[ProducerForbidden]`.
+- **Policies list:** eye icon, row click opens Policy Summary, all columns toggleable, tiles Total / Active / Bound / Cancelled / Do Not Renew, Bound records listed.
+- **Policy Summary:** overdue days, billing percentages and alignment, USD and icons on tiles, contact address, phone format and tooltip, Policy Information on Billing, Effective Date column in History, Action column first.
+- **New Submission:** Effective Date defaults to today + 3.
+
+---
+
 ## 2026-10-29 — Abhishek
 
 **Area:** Backend / Frontend

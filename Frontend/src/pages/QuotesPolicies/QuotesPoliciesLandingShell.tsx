@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { ChevronRight, FileCheck2, FileClock, FilePlus2, FileText, PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { policyStatusLabel } from '../../utils/policyStatus';
 import './QuotesPolicies.css';
 
 type ActionItem = {
@@ -193,7 +194,7 @@ export function WizardSidebar({ submissionId, status, currentStep, onStepClick, 
       <div className="submission-sidebar">
         <div className="submission-id-box">{isPolicy ? 'Policy ID' : 'ID'} - {submissionId}</div>
         <div className="submission-status">
-          Status: <span className={`badge badge-${currentStatus.toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{currentStatus}</span>
+          Status: <span className={`badge badge-${currentStatus.toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{policyStatusLabel(currentStatus)}</span>
         </div>
 
         <div className="step-list">

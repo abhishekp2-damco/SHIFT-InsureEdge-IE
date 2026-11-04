@@ -1,5 +1,8 @@
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Landmark, Receipt, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react';
+import * as fv from '../utils/fieldValidation';
+import { policyStatusLabel } from '../utils/policyStatus';
 import { quotesPoliciesApi } from '../api/quotesPolicies';
 import { authApi } from '../api/auth';
 import type { PolicySummaryDto, PolicyTransactionDto, PolicyPendingTransactionDto, PolicyContactDto, PolicyBillingDetailDto, PolicyClaimRowDto, PolicyTimelineEntryDto, PolicyCancellationPreview, CancelRewritePreview, CancelRewriteResult, NoticeOfNonRenewalInfo, NoteDto, NoteFileDto } from '../types/Policy';
@@ -32,6 +35,20 @@ const titleByKey: Record<MenuKey, string> = {
 const fmtCurrency = (value: number | null | undefined) => (value ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type BillingSeriesItem = { key: string; label: string; value: number; color: string };
+
+// QA IP-19 / IP-20 / IP-27: Producers get Endorse only and read-only Notes. The API enforces
+// the same rules ([ProducerForbidden]).
+function useIsProducerLogin() {
+  const [isProducerLogin, setIsProducerLogin] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    authApi.getMyProducer()
+      .then(result => { if (!cancelled) setIsProducerLogin(Boolean(result.producer)); })
+      .catch(() => { if (!cancelled) setIsProducerLogin(false); });
+    return () => { cancelled = true; };
+  }, []);
+  return isProducerLogin;
+}
 
 function EyeIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>;
@@ -586,7 +603,7 @@ function ToolsMenu({ insuredType, policyNumber, policyStatus, policyEffectiveDat
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDoNotRenew, setShowDoNotRenew] = useState(false);
   const [showRemoveDoNotRenewConfirm, setShowRemoveDoNotRenewConfirm] = useState(false);
-  const [isProducerLogin, setIsProducerLogin] = useState(false);
+  const isProducerLogin = useIsProducerLogin();
   const ref = useRef<HTMLDivElement>(null);
   const isDoNotRenew = policyStatus === 'DONOTRENEW';
   const canEndorse = policyStatus === 'Active' || policyStatus === 'Bound';
@@ -594,16 +611,8 @@ function ToolsMenu({ insuredType, policyNumber, policyStatus, policyEffectiveDat
   const canCancelRewrite = policyStatus === 'Active';
   const canDoNotRenew = policyStatus === 'Active';
 
-  // All users (producers and staff) now have access to all Tools options
-  useEffect(() => {
-    let cancelled = false;
-    authApi.getMyProducer()
-      .then(result => { if (!cancelled) setIsProducerLogin(Boolean(result.producer)); })
-      .catch(() => { if (!cancelled) setIsProducerLogin(false); });
-    return () => { cancelled = true; };
-  }, []);
-
   const items = TOOLS_MENU_ITEMS
+    .filter(item => !isProducerLogin || item.label === 'Endorse Policy')
     .map(item => item.label === 'Do Not Renew' && isDoNotRenew ? { ...item, label: 'Remove Do Not Renew' } : item);
 
   useEffect(() => {
@@ -1091,23 +1100,40 @@ function StatusBadge({ status }: { status: string }) {
     'Non-Renewed': { border: '#9ca3af', bg: '#f3f4f6', color: '#4b5563' },
     Inactive: { border: '#9ca3af', bg: '#f3f4f6', color: '#4b5563' },
     Active: { border: '#008c55', bg: '#d7f7e4', color: '#006b3c' },
+    Bound: { border: '#0B5AA0', bg: '#e0f0ff', color: '#0B5AA0' },
     DONOTRENEW: { border: '#9ca3af', bg: '#f3f4f6', color: '#4b5563' },
   };
-  const labels: Record<string, string> = { DONOTRENEW: 'Do Not Renew' };
   const variant = variants[status] ?? variants['Non-Renewed'];
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 22, padding: '0 12px', borderRadius: 999, border: `1px solid ${variant.border}`, background: variant.bg, color: variant.color, fontSize: 12, fontWeight: 700 }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: variant.border }} />
-      {labels[status] ?? status}
+      {policyStatusLabel(status)}
     </span>
   );
 }
 
-function KpiTile({ label, value, valueColor = '#111827' }: { label: string; value: string; valueColor?: string }) {
+function KpiTile({ label, value, valueColor = '#111827', icon: Icon }: { label: string; value: string; valueColor?: string; icon?: LucideIcon }) {
   return (
-    <div style={{ flex: 1, border: '1px solid #e5e7eb', borderRadius: 6, padding: '14px 16px', background: '#fafbfc' }}>
-      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, color: valueColor }}>{value}</div>
+    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, border: '1px solid #e5e7eb', borderRadius: 6, padding: '14px 16px', background: '#fafbfc' }}>
+      <div>
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: valueColor }}>{value}</div>
+      </div>
+      {Icon && <Icon size={26} color={valueColor} style={{ flexShrink: 0 }} aria-hidden="true" />}
+    </div>
+  );
+}
+
+// QA IP-25 / IP-26: currency and icons on the four premium tiles. The icons are placeholders
+// until the OutSystems assets are supplied.
+function FinancialTiles({ financials }: { financials: PolicySummaryDto['financials'] | undefined }) {
+  const usd = (value: number | null | undefined) => `USD ${fmtCurrency(value)}`;
+  return (
+    <div style={{ display: 'flex', gap: 16 }}>
+      <KpiTile label="Coverage Premium" value={usd(financials?.coveragePremium)} valueColor="#0B5AA0" icon={ShieldCheck} />
+      <KpiTile label="Taxes" value={usd(financials?.taxes)} valueColor="#0B5AA0" icon={Landmark} />
+      <KpiTile label="Fees" value={usd(financials?.fees)} valueColor="#c26a1a" icon={Receipt} />
+      <KpiTile label="Total Premium" value={usd(financials?.totalPremium)} valueColor="#111827" icon={Wallet} />
     </div>
   );
 }
@@ -1145,6 +1171,7 @@ function BillingDonutChart({ series }: { series: BillingSeriesItem[] }) {
 }
 
 function BillingLegend({ series }: { series: BillingSeriesItem[] }) {
+  const total = series.reduce((sum, item) => sum + item.value, 0);
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 32px' }}>
       {series.map(item => (
@@ -1152,6 +1179,8 @@ function BillingLegend({ series }: { series: BillingSeriesItem[] }) {
           <span style={{ width: 12, height: 12, borderRadius: 3, background: item.color, flexShrink: 0 }} />
           <span style={{ color: '#374151', minWidth: 150 }}>{item.label}</span>
           <strong style={{ color: '#111827' }}>USD {fmtCurrency(item.value)}</strong>
+          {/* QA IP-14: each element's share of the chart. */}
+          <span style={{ color: '#6b7280' }}>{total > 0 ? ((item.value / total) * 100).toFixed(1) : '0.0'}%</span>
         </div>
       ))}
     </div>
@@ -1217,6 +1246,15 @@ function PolicyInformationCard({ summary, policyId }: { summary: PolicySummaryDt
   );
 }
 
+// QA IP-23: long addresses are truncated with the full value on hover.
+function AddressCell({ address }: { address: string | null | undefined }) {
+  return (
+    <td style={{ padding: '10px 12px', maxWidth: 280 }} title={address ?? undefined}>
+      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{na(address)}</div>
+    </td>
+  );
+}
+
 type ContactColKey = 'name' | 'phone' | 'email' | 'address';
 const CONTACT_COLS: { key: ContactColKey; label: string }[] = [
   { key: 'name', label: 'Name' },
@@ -1227,7 +1265,7 @@ const CONTACT_COLS: { key: ContactColKey; label: string }[] = [
 
 function contactCell(row: PolicyContactDto, key: ContactColKey): string {
   if (key === 'name') return row.name ?? '';
-  if (key === 'phone') return row.phone ?? '';
+  if (key === 'phone') return fv.formatPhone(row.phone);
   if (key === 'email') return row.email ?? '';
   return row.address ?? '';
 }
@@ -1327,9 +1365,9 @@ function ContactsContent({ summary, policyId }: { summary: PolicySummaryDto | nu
                 <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '10px 12px', color: '#9ca3af' }}>{i + 1}</td>
                   <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{na(row.name)}</td>
-                  <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{na(row.phone)}</td>
+                  <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{fv.formatPhone(row.phone) || '-'}</td>
                   <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{na(row.email)}</td>
-                  <td style={{ padding: '10px 12px' }}>{na(row.address)}</td>
+                  <AddressCell address={row.address} />
                 </tr>
               ))}
             </tbody>
@@ -1520,13 +1558,11 @@ function BillingContent({ policyId, insuredType, summary }: { policyId: string; 
 
   return (
     <>
+      {/* QA IP-24 */}
+      <PolicyInformationCard summary={summary} policyId={policyId} />
+
       <Section title="Summary">
-        <div style={{ display: 'flex', gap: 16 }}>
-          <KpiTile label="Coverage Premium" value={fmtCurrency(summary?.financials?.coveragePremium)} valueColor="#0B5AA0" />
-          <KpiTile label="Taxes" value={fmtCurrency(summary?.financials?.taxes)} valueColor="#0B5AA0" />
-          <KpiTile label="Fees" value={fmtCurrency(summary?.financials?.fees)} valueColor="#c26a1a" />
-          <KpiTile label="Total Premium" value={fmtCurrency(summary?.financials?.totalPremium)} valueColor="#111827" />
-        </div>
+        <FinancialTiles financials={summary?.financials} />
       </Section>
 
       <Section title="Premium Payment Details">
@@ -1614,10 +1650,11 @@ function BillingContent({ policyId, insuredType, summary }: { policyId: string; 
   );
 }
 
-type HistoryColKey = 'policyNumber' | 'transactionType' | 'transactionEffectiveDate' | 'expirationDate' | 'status';
+type HistoryColKey = 'policyNumber' | 'transactionType' | 'effectiveDate' | 'transactionEffectiveDate' | 'expirationDate' | 'status';
 const HISTORY_COLS: { key: HistoryColKey; label: string }[] = [
   { key: 'policyNumber', label: 'Policy Number' },
   { key: 'transactionType', label: 'Transaction Type' },
+  { key: 'effectiveDate', label: 'Effective Date' },
   { key: 'transactionEffectiveDate', label: 'Transaction Effective Date' },
   { key: 'expirationDate', label: 'Expiration Date' },
   { key: 'status', label: 'Status' },
@@ -1724,7 +1761,7 @@ function PolicyHistoryContent({ policyId, insuredType, summary }: { policyId: st
               </tr>
             </thead>
             <tbody>
-              {sorted.length === 0 && <tr><td colSpan={6} style={{ padding: '40px 12px', textAlign: 'center', fontWeight: 700, color: '#111827' }}>No Data Available</td></tr>}
+              {sorted.length === 0 && <tr><td colSpan={7} style={{ padding: '40px 12px', textAlign: 'center', fontWeight: 700, color: '#111827' }}>No Data Available</td></tr>}
               {sorted.map(row => (
                 <tr key={row.id} style={{ borderTop: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '10px 12px' }}>
@@ -1739,6 +1776,7 @@ function PolicyHistoryContent({ policyId, insuredType, summary }: { policyId: st
                   </td>
                   <td style={{ padding: '10px 12px' }}>{row.policyNumber}</td>
                   <td style={{ padding: '10px 12px' }}>{na(row.transactionTypeLabel ?? row.transactionType)}</td>
+                  <td style={{ padding: '10px 12px' }}>{na(row.effectiveDate)}</td>
                   <td style={{ padding: '10px 12px' }}>{na(row.transactionEffectiveDate)}</td>
                   <td style={{ padding: '10px 12px' }}>{na(row.expirationDate)}</td>
                   <td style={{ padding: '10px 12px' }}>{row.status && <StatusBadge status={row.status} />}</td>
@@ -2064,12 +2102,13 @@ function AddNoteModal({ insuredType, policyId, note, onClose, onSaved }: {
   );
 }
 
-function NoteCard({ note, insuredType, policyId, onEdit, onDeleted }: {
+function NoteCard({ note, insuredType, policyId, onEdit, onDeleted, readOnly }: {
   note: NoteDto;
   insuredType: string;
   policyId: string;
   onEdit: () => void;
   onDeleted: () => void;
+  readOnly: boolean;
 }) {
   const [deleting, setDeleting] = useState(false);
 
@@ -2105,10 +2144,12 @@ function NoteCard({ note, insuredType, policyId, onEdit, onDeleted }: {
           ))}
         </div>
       )}
+      {!readOnly && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, marginTop: 6 }}>
         <button onClick={onEdit} title="Edit" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#374151', display: 'inline-flex' }}><PencilIcon /></button>
         <button onClick={handleDelete} disabled={deleting} title="Delete" style={{ background: 'transparent', border: 'none', cursor: deleting ? 'default' : 'pointer', color: '#df4159', display: 'inline-flex' }}><TrashIcon /></button>
       </div>
+      )}
     </div>
   );
 }
@@ -2117,6 +2158,7 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
   const [notes, setNotes] = useState<NoteDto[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteDto | null>(null);
+  const isProducerLogin = useIsProducerLogin();
 
   const refetch = () => {
     if (!policyId) return;
@@ -2128,14 +2170,14 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
   return (
     <Section
       title="Notes"
-      actions={
+      actions={isProducerLogin ? undefined : (
         <button
           onClick={() => { setEditingNote(null); setModalOpen(true); }}
           style={{ height: 34, minWidth: 84, border: 'none', background: '#0B5AA0', color: '#fff', borderRadius: 4, fontWeight: 700, cursor: 'pointer' }}
         >
           + Add
         </button>
-      }
+      )}
     >
       {notes.length === 0 ? <EmptyState /> : notes.map(n => (
         <NoteCard
@@ -2145,6 +2187,7 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
           policyId={policyId}
           onEdit={() => { setEditingNote(n); setModalOpen(true); }}
           onDeleted={refetch}
+          readOnly={isProducerLogin}
         />
       ))}
       {modalOpen && (
@@ -2274,23 +2317,25 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
       </Section>
 
       <Section title="Financials">
-        <div style={{ display: 'flex', gap: 16 }}>
-          <KpiTile label="Coverage Premium" value={fmtCurrency(summary?.financials?.coveragePremium)} valueColor="#0B5AA0" />
-          <KpiTile label="Taxes" value={fmtCurrency(summary?.financials?.taxes)} valueColor="#0B5AA0" />
-          <KpiTile label="Fees" value={fmtCurrency(summary?.financials?.fees)} valueColor="#c26a1a" />
-          <KpiTile label="Total Premium" value={fmtCurrency(summary?.financials?.totalPremium)} valueColor="#111827" />
-        </div>
+        <FinancialTiles financials={summary?.financials} />
       </Section>
 
       <Section title="Billing">
-        <div style={{ display: 'flex', gap: 40, marginBottom: 20 }}>
-          <div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Payment Frequency</div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{na(summary?.billing?.paymentFrequency)}</div>
+        {/* QA IP-15 */}
+        {(summary?.billing?.overdueDays ?? 0) > 0 && (
+          <div style={{ marginBottom: 14, fontSize: 13, fontWeight: 700, color: '#c62828' }}>
+            Payment overdue by {summary?.billing?.overdueDays} {summary?.billing?.overdueDays === 1 ? 'day' : 'days'}
           </div>
-          <div>
+        )}
+        {/* QA IP-13: values right-aligned. */}
+        <div style={{ display: 'flex', gap: 40, marginBottom: 20 }}>
+          <div style={{ minWidth: 180 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Payment Frequency</div>
+            <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'right' }}>{na(summary?.billing?.paymentFrequency)}</div>
+          </div>
+          <div style={{ minWidth: 180 }}>
             <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Responsible Party</div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{na(summary?.billing?.responsibleParty)}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'right' }}>{na(summary?.billing?.responsibleParty)}</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 48 }}>
@@ -2301,15 +2346,9 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
 
       <Section title="Pending Transactions">
         {pending.length > 0 ? (
-          <DataTable columns={['Policy Number', 'Transaction Type', 'Quote Number', 'Transaction Effective Date', 'Assigned User', 'Status', 'Action']}>
+          <DataTable columns={['Action', 'Policy Number', 'Transaction Type', 'Quote Number', 'Transaction Effective Date', 'Assigned User', 'Status']}>
             {pending.map(row => (
               <tr key={row.policyId} style={{ borderTop: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '10px 12px' }}>{row.policyNumber}</td>
-                <td style={{ padding: '10px 12px' }}>{na(row.transactionType)}</td>
-                <td style={{ padding: '10px 12px' }}>{na(row.quoteNumber)}</td>
-                <td style={{ padding: '10px 12px' }}>{na(row.transactionEffectiveDate)}</td>
-                <td style={{ padding: '10px 12px' }}>{row.assignedUser}</td>
-                <td style={{ padding: '10px 12px' }}>{row.status && <StatusBadge status={row.status} />}</td>
                 <td style={{ padding: '10px 12px' }}>
                   <button
                     title="View pending transaction"
@@ -2320,6 +2359,12 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
                     <EyeIcon />
                   </button>
                 </td>
+                <td style={{ padding: '10px 12px' }}>{row.policyNumber}</td>
+                <td style={{ padding: '10px 12px' }}>{na(row.transactionType)}</td>
+                <td style={{ padding: '10px 12px' }}>{na(row.quoteNumber)}</td>
+                <td style={{ padding: '10px 12px' }}>{na(row.transactionEffectiveDate)}</td>
+                <td style={{ padding: '10px 12px' }}>{row.assignedUser}</td>
+                <td style={{ padding: '10px 12px' }}>{row.status && <StatusBadge status={row.status} />}</td>
               </tr>
             ))}
           </DataTable>
@@ -2337,15 +2382,9 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
           </Link>
         ) : undefined}
       >
-        <DataTable columns={['Policy Number', 'Effective Date', 'Expiration Date', 'Transaction Type', 'Transaction Effective Date', 'Status', 'Action']}>
+        <DataTable columns={['Action', 'Policy Number', 'Effective Date', 'Expiration Date', 'Transaction Type', 'Transaction Effective Date', 'Status']}>
           {history.slice(0, 3).map(row => (
             <tr key={row.id} style={{ borderTop: '1px solid #f3f4f6' }}>
-              <td style={{ padding: '10px 12px' }}>{row.policyNumber}</td>
-              <td style={{ padding: '10px 12px' }}>{row.effectiveDate}</td>
-              <td style={{ padding: '10px 12px' }}>{row.expirationDate}</td>
-              <td style={{ padding: '10px 12px' }}>{row.transactionTypeLabel ?? row.transactionType}</td>
-              <td style={{ padding: '10px 12px' }}>{row.transactionEffectiveDate}</td>
-              <td style={{ padding: '10px 12px' }}>{row.status && <StatusBadge status={row.status} />}</td>
               <td style={{ padding: '10px 12px' }}>
                 <button
                   title="View policy"
@@ -2356,6 +2395,12 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
                   <EyeIcon />
                 </button>
               </td>
+              <td style={{ padding: '10px 12px' }}>{row.policyNumber}</td>
+              <td style={{ padding: '10px 12px' }}>{row.effectiveDate}</td>
+              <td style={{ padding: '10px 12px' }}>{row.expirationDate}</td>
+              <td style={{ padding: '10px 12px' }}>{row.transactionTypeLabel ?? row.transactionType}</td>
+              <td style={{ padding: '10px 12px' }}>{row.transactionEffectiveDate}</td>
+              <td style={{ padding: '10px 12px' }}>{row.status && <StatusBadge status={row.status} />}</td>
             </tr>
           ))}
         </DataTable>
@@ -2380,9 +2425,9 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
             {summary.contacts.map((row, i) => (
               <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                 <td style={{ padding: '10px 12px' }}>{na(row.name)}</td>
-                <td style={{ padding: '10px 12px' }}>{na(row.phone)}</td>
+                <td style={{ padding: '10px 12px' }}>{fv.formatPhone(row.phone) || '-'}</td>
                 <td style={{ padding: '10px 12px' }}>{na(row.email)}</td>
-                <td style={{ padding: '10px 12px' }}>{na(row.address)}</td>
+                <AddressCell address={row.address} />
               </tr>
             ))}
           </DataTable>

@@ -65,7 +65,7 @@ public record RenewalListItemDto(
 
 // ─── Policies ───────────────────────────────────────────────────────────────
 
-public record PoliciesKpiDto(int Total, int Active, int Lapsed, int Expired, int Cancelled);
+public record PoliciesKpiDto(int Total, int Active, int Bound, int Cancelled, int DoNotRenew);
 
 public record PolicyListItemDto(
     string Id,                 // p.policy_number
@@ -139,7 +139,8 @@ public record PolicyBillingDto(
     decimal TotalBilled,          // SUM(policy_payment_transaction.amount_due)
     decimal AmountPaid,           // SUM(amount_due) WHERE is_paid
     decimal AmountDue,            // SUM(amount_due) WHERE NOT is_paid
-    decimal UnbilledPremium       // total_premium_with_installment_fee - TotalBilled (floor 0)
+    decimal UnbilledPremium,      // total_premium_with_installment_fee - TotalBilled (floor 0)
+    int OverdueDays               // QA IP-15: days since the oldest unpaid instalment fell due; 0 if none
 );
 
 public record PolicyClaimSummaryDto(string ClaimNumber, string? Status);

@@ -89,9 +89,9 @@ export interface RenewalListItemDto {
 export interface PoliciesKpiDto {
   total: number;
   active: number;
-  lapsed: number;
-  expired: number;
+  bound: number;
   cancelled: number;
+  doNotRenew: number;
 }
 
 export interface PolicyListItemDto {
@@ -135,6 +135,7 @@ export interface PolicyBillingDto {
   amountPaid: number;
   amountDue: number;
   unbilledPremium: number;
+  overdueDays: number;
 }
 
 export interface PolicyClaimSummaryDto {

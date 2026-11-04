@@ -219,6 +219,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPost("{policyNumber}/cancel")]
+    [ProducerForbidden]
     public async Task<IActionResult> CancelPolicy(string insuredType, string policyNumber, [FromBody] CancelPolicyRequestDto request)
     {
         try
@@ -251,6 +252,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPost("{policyNumber}/cancel-rewrite")]
+    [ProducerForbidden]
     public async Task<IActionResult> CancelRewritePolicy(string insuredType, string policyNumber, [FromBody] CancelRewriteRequestDto request)
     {
         try
@@ -279,6 +281,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPost("{policyNumber}/do-not-renew")]
+    [ProducerForbidden]
     public async Task<IActionResult> SubmitDoNotRenew(string insuredType, string policyNumber, [FromBody] DoNotRenewRequestDto request)
     {
         try
@@ -296,6 +299,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPost("{policyNumber}/remove-do-not-renew")]
+    [ProducerForbidden]
     public async Task<IActionResult> RemoveDoNotRenew(string insuredType, string policyNumber)
     {
         try
@@ -327,6 +331,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPost("{policyNumber}/notes")]
+    [ProducerForbidden]
     public async Task<IActionResult> CreateNote(string insuredType, string policyNumber)
     {
         try
@@ -352,6 +357,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpPut("{policyNumber}/notes/{noteId}")]
+    [ProducerForbidden]
     public async Task<IActionResult> UpdateNote(string insuredType, string policyNumber, long noteId)
     {
         try
@@ -384,6 +390,7 @@ public class PoliciesController : ControllerBase
     }
 
     [HttpDelete("{policyNumber}/notes/{noteId}")]
+    [ProducerForbidden]
     public async Task<IActionResult> DeleteNote(string insuredType, string policyNumber, long noteId)
     {
         try

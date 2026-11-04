@@ -77,6 +77,13 @@ export function isoToMmddyyyy(value?: string | null): string {
   return m ? `${m[2]}-${m[3]}-${m[1]}` : '';
 }
 
+// QA IP-01: today + n calendar days in the user's local time.
+export function addDaysMmDdYyyy(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;
+}
+
 export function todayMmDdYyyy(): string {
   const d = new Date();
   return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${d.getFullYear()}`;

@@ -392,7 +392,8 @@ const DEFAULT_LANDING_FORM: NewSubmissionLandingForm = {
   typeOfQuote: 'Quick',
   insuranceType: 'Specialty Lines',
   country: 'United States',
-  effectiveDate: todayFormatted(),
+  // QA IP-01: defaults to today + 3 calendar days; still editable (QP-12).
+  effectiveDate: fv.addDaysMmDdYyyy(3),
   lob: 'E&S Homeowners',
   subProduct: 'SuperPerils',
   primaryState: '',
@@ -653,7 +654,8 @@ function normalizedOption(value: string, fallback: string) {
 function applyPlanScenarioDefaults(form: FormState): FormState {
   const explicitPlanSource = valueOrFallback(form.coverageLevel, valueOrFallback(form.selectedPlan, ''));
   const flow = getFlowKind(form);
-  const defaults = flow === 'newBusiness' ? defaultForm : POLICY_SCENARIO_DEFAULTS;
+  // An issued policy shows only what it really holds: sample limits must never look like its data.
+  const defaults = flow === 'newBusiness' ? defaultForm : flow === 'policy' ? {} : POLICY_SCENARIO_DEFAULTS;
   const merged = { ...form };
   (Object.keys(defaults) as Array<keyof FormState>).forEach(key => {
     if (key === 'quoteNumber' || key === 'policyNumber') return;
@@ -6047,6 +6049,13 @@ export default function NewSubmission() {
 
   async function saveSubmission(nextStepValue?: number, closeAfterSave = false) {
     console.log('saveSubmission called with nextStepValue:', nextStepValue, 'currentStep:', step);
+    // QA IP-08 / IP-16: an issued policy or read-only view has nothing to save; saving could
+    // only overwrite it. Just move on.
+    if (flow === 'policy' || readOnly) {
+      if (typeof nextStepValue === 'number') goToStep(nextStepValue);
+      if (closeAfterSave) navigate(nbQuotesBackPath);
+      return;
+    }
     // Validate current step before saving or navigating
     if (nextStepValue !== undefined && nextStepValue > step) {
       // User clicked Save & Next - validate before navigating
@@ -6111,7 +6120,7 @@ export default function NewSubmission() {
     }
     setSaveState('saving');
     try {
-      const nextStatus = flow === 'policy' ? valueOrFallback(form.recordStatus, 'Active') : booleanValue(form.lockSubmission) ? 'Submitted' : valueOrFallback(form.recordStatus, 'Draft');
+      const nextStatus = form.recordStatus === 'Bound' ? 'Bound' : booleanValue(form.lockSubmission) ? 'Submitted' : valueOrFallback(form.recordStatus, 'Draft');
       const formForSave = withRecordIdentity(form, submissionId);
       const dataJson = JSON.stringify({
         form: { ...formForSave, recordStatus: nextStatus },

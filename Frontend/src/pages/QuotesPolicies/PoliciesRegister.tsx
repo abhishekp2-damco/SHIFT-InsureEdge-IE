@@ -1,9 +1,10 @@
 import { showPagination } from '../../utils/fieldValidation';
+import { policyStatusLabel } from '../../utils/policyStatus';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { avatarColor, initials } from './QuotesPoliciesLandingShell';
 import {
-  KpiStat, FilterPopup, ColPanel, FunnelIcon, RefreshIcon, DocIcon,
+  KpiStat, FilterPopup, ColPanel, FunnelIcon, EyeIcon, RefreshIcon, DocIcon,
   ICON_DOC, ICON_DOC_CHECK, ICON_DOC_X, ICON_DOC_DRAFT, ICON_DOC_CLOCK,
   evalOp, type AppliedFilters, type ColFilter, type SortState,
 } from './GridHelpers';
@@ -14,18 +15,18 @@ type Policy = PolicyListItemDto;
 type Kpis = PoliciesKpiDto;
 
 const COL_DEFS = [
+  { key: 'id',             label: 'Policy Number' },
+  { key: 'insuredName',    label: 'Insured Name' },
   { key: 'lob',            label: 'Line of Business' },
   { key: 'effectiveDate',  label: 'Effective Date' },
+  { key: 'status',         label: 'Status' },
   { key: 'expirationDate', label: 'Expiration Date' },
   { key: 'premiumAmount',  label: 'Premium Amount' },
   { key: 'lastUpdated',    label: 'Last Updated' },
   { key: 'state',          label: 'State' },
 ] as const;
 
-const ALL_LABELS: Record<string, string> = {
-  ...Object.fromEntries(COL_DEFS.map(c => [c.key, c.label])),
-  id: 'Policy Number', insuredName: 'Insured Name', status: 'Status',
-};
+const ALL_LABELS: Record<string, string> = Object.fromEntries(COL_DEFS.map(c => [c.key, c.label]));
 
 
 type ColKey = typeof COL_DEFS[number]['key'];
@@ -88,7 +89,7 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
       const s = search.toLowerCase();
       r = r.filter(row => Object.values(row).some(v => String(v).toLowerCase().includes(s)));
     }
-    if (kpiFilter) {
+    if (kpiFilter && kpiFilter !== 'total') {
       r = r.filter(row => (row.status || '').toLowerCase().replace(/\s+/g, '') === kpiFilter);
     }
     for (const [col, f] of Object.entries(filters)) {
@@ -149,9 +150,9 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
         <div className="kpi-row">
           <KpiStat label="Total"     value={kpis.total}     color="#1a3b6b" icon={<DocIcon path={ICON_DOC}       />} active={kpiFilter === 'total'}     onClick={() => toggleKpi('total')} />
           <KpiStat label="Active"    value={kpis.active}    color="#16a34a" icon={<DocIcon path={ICON_DOC_CHECK} />} active={kpiFilter === 'active'}    onClick={() => toggleKpi('active')} />
-          <KpiStat label="Lapsed"    value={kpis.lapsed}    color="#d97706" icon={<DocIcon path={ICON_DOC_DRAFT} />} active={kpiFilter === 'lapsed'}    onClick={() => toggleKpi('lapsed')} />
-          <KpiStat label="Expired"   value={kpis.expired}   color="#92400e" icon={<DocIcon path={ICON_DOC_CLOCK} />} active={kpiFilter === 'expired'}   onClick={() => toggleKpi('expired')} />
+          <KpiStat label="Bound"     value={kpis.bound}     color="#0B5AA0" icon={<DocIcon path={ICON_DOC_DRAFT} />} active={kpiFilter === 'bound'}     onClick={() => toggleKpi('bound')} />
           <KpiStat label="Cancelled" value={kpis.cancelled} color="#dc2626" icon={<DocIcon path={ICON_DOC_X}     />} active={kpiFilter === 'cancelled'} onClick={() => toggleKpi('cancelled')} />
+          <KpiStat label="Do Not Renew" value={kpis.doNotRenew} color="#92400e" icon={<DocIcon path={ICON_DOC_CLOCK} />} active={kpiFilter === 'donotrenew'} onClick={() => toggleKpi('donotrenew')} />
         </div>
       )}
 
@@ -208,11 +209,11 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
                 </th>
                 <th style={{ width: 28 }}></th>
                 <th>Action</th>
-                <Th col="id"           label="Policy Number" sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
-                <Th col="insuredName"  label="Insured Name"  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
+                {visibleCols.id          && <Th col="id"           label="Policy Number" sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
+                {visibleCols.insuredName && <Th col="insuredName"  label="Insured Name"  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.lob            && <Th col="lob"            label="Line of Business" sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.effectiveDate  && <Th col="effectiveDate"  label="Effective Date"   sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                <Th col="status"       label="Status"        sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
+                {visibleCols.status      && <Th col="status"       label="Status"        sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.expirationDate && <Th col="expirationDate" label="Expiration Date"  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.premiumAmount  && <Th col="premiumAmount"  label="Premium Amount"   sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.lastUpdated    && <Th col="lastUpdated"    label="Last Updated"     sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
@@ -222,20 +223,22 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
             <tbody>
               {pageRows.length === 0 && <tr><td colSpan={15} className="no-data">No Data Available</td></tr>}
               {pageRows.map((p, i) => (
-                <tr key={p.id} className="data-row" onClick={() => navigate('/quotes-policies/submissions/' + p.id + '?step=4')}>
+                <tr key={p.id} className="data-row" onClick={() => navigate('/quotes-policies/policies/' + p.id + '?insuredType=' + insuredType)}>
                   <td className="row-num">{(page - 1) * pageSize + i + 1}</td>
                   <td><input type="checkbox" /></td>
-                  <td><div className="action-cell"><button className="action-btn" title="View Policy Summary" onClick={e => { e.stopPropagation(); navigate('/quotes-policies/policies/' + p.id + '?insuredType=' + insuredType); }}><DocIcon path={ICON_DOC} size={16} /></button></div></td>
-                  <td className="mono" style={{ color: '#1a3b6b' }}>{p.id}</td>
-                  <td>
-                    <div className="insured-cell">
-                      <div className="insured-avatar" style={{ background: avatarColor(p.insuredName) }}>{initials(p.insuredName)}</div>
-                      <span className="insured-name">{p.insuredName}</span>
-                    </div>
-                  </td>
+                  <td><div className="action-cell"><button className="action-btn" title="View Policy Summary" onClick={e => { e.stopPropagation(); navigate('/quotes-policies/policies/' + p.id + '?insuredType=' + insuredType); }}><EyeIcon /></button></div></td>
+                  {visibleCols.id && <td className="mono" style={{ color: '#1a3b6b' }}>{p.id}</td>}
+                  {visibleCols.insuredName && (
+                    <td>
+                      <div className="insured-cell">
+                        <div className="insured-avatar" style={{ background: avatarColor(p.insuredName) }}>{initials(p.insuredName)}</div>
+                        <span className="insured-name">{p.insuredName}</span>
+                      </div>
+                    </td>
+                  )}
                   {visibleCols.lob            && <td>{p.lob}</td>}
                   {visibleCols.effectiveDate  && <td>{p.effectiveDate}</td>}
-                  <td><span className={`badge badge-${(p.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{p.status}</span></td>
+                  {visibleCols.status && <td><span className={`badge badge-${(p.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{policyStatusLabel(p.status)}</span></td>}
                   {visibleCols.expirationDate && <td>{p.expirationDate}</td>}
                   {visibleCols.premiumAmount  && <td style={{ textAlign: 'right' }}>{fmtCurrency(p.premiumAmount)}</td>}
                   {visibleCols.lastUpdated    && <td>{p.lastUpdated}</td>}

@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using InsureEdge.Application.DTOs.QuotesPolicies;
 using InsureEdge.Application.Interfaces;
+using InsureEdge.Application.Services;
 using InsureEdge.Domain.Entities;
 using InsureEdge.Infrastructure.Data;
 using InsureEdge.Infrastructure.Services;
@@ -68,6 +69,24 @@ public class SubmissionRepository : ISubmissionRepository
     public async Task<SubmissionDto?> GetByIdAsync(long clientId, string id)
     {
         var row = await _db.Submissions.FirstOrDefaultAsync(s => s.Id == id && s.ClientId == clientId);
+
+        // QA IP-09 / IP-10 / IP-12: an issued policy opens with its full submission, but its
+        // identity and status always come from the policy, never from the stored JSON.
+        var issued = await FindIssuedPolicyAsync(clientId, id, row);
+        if (issued != null)
+        {
+            row ??= await FindSubmissionForPolicyAsync(clientId, issued);
+            if (row != null)
+            {
+                var dto = Map(row);
+                return dto with
+                {
+                    Status = issued.PolicyStatus ?? dto.Status,
+                    DataJson = ApplyIssuedIdentity(dto.DataJson, issued.PolicyNumber, await ScreenCodeAsync(clientId, issued) ?? "POLICYINDIVIDUAL", issued.PolicyStatus ?? "Active"),
+                };
+            }
+            return await BackfillSubmissionFromPolicyAsync(clientId, id, issued.Id);
+        }
         if (row != null) return Map(row);
 
         // Legacy/seeded policies created directly in the `policy` table (not through the
@@ -116,7 +135,41 @@ public class SubmissionRepository : ISubmissionRepository
         return matches.FirstOrDefault(m => m != quoteNumber) ?? matches[0];
     }
 
-    private async Task<SubmissionDto?> BackfillSubmissionFromPolicyAsync(long clientId, string id)
+    // The issued policy (PolicyType POLICY) this id refers to, if any: a policy number, a quote
+    // number, or a submission whose JSON carries the quote number (endorsements).
+    private async Task<Policy?> FindIssuedPolicyAsync(long clientId, string id, Submission? row)
+    {
+        var sameNumber = await _db.Policies
+            .Where(p => p.ClientId == clientId && p.PolicyNumber == id && p.PolicyType == "POLICY")
+            .ToListAsync();
+        var current = PolicyRules.PickCurrent(
+            sameNumber.Where(p => PolicyRules.IsCurrentCandidate(p.PolicyType, p.PolicyStatus)), p => p.PolicyStatus, p => p.Id);
+        if (current != null) return current;
+
+        var quoteNumber = id;
+        if (row != null)
+        {
+            try { quoteNumber = BlankToNull(StringOrNull(JsonNode.Parse(row.Data)?["form"], "quoteNumber")) ?? id; }
+            catch (JsonException) { }
+        }
+        return await _db.Policies
+            .Where(p => p.ClientId == clientId && (p.QuoteNumber == id || p.QuoteNumber == quoteNumber) && p.PolicyType == "POLICY")
+            .OrderByDescending(p => p.Id)
+            .FirstOrDefaultAsync();
+    }
+
+    // New Business: the submission's Id is the policy's QuoteNumber. Endorsements: the link is
+    // the "quoteNumber" inside the submission's JSON.
+    private async Task<Submission?> FindSubmissionForPolicyAsync(long clientId, Policy policy)
+    {
+        if (string.IsNullOrWhiteSpace(policy.QuoteNumber)) return null;
+        var direct = await _db.Submissions.FirstOrDefaultAsync(s => s.Id == policy.QuoteNumber && s.ClientId == clientId);
+        if (direct != null) return direct;
+        var submissionId = await GetSubmissionIdByQuoteNumberAsync(clientId, policy.QuoteNumber);
+        return submissionId == null ? null : await _db.Submissions.FirstOrDefaultAsync(s => s.Id == submissionId && s.ClientId == clientId);
+    }
+
+    private async Task<SubmissionDto?> BackfillSubmissionFromPolicyAsync(long clientId, string id, long? policyId = null)
     {
         // Prefer an exact QuoteNumber match (unique per draft/endorsement), then the
         // non-Draft policy sharing that PolicyNumber (main/active record — PolicyNumber
@@ -129,7 +182,8 @@ public class SubmissionRepository : ISubmissionRepository
             .Include(p => p.RiskAddresses)
             .Where(p => p.ClientId == clientId);
 
-        var policy = await query.Where(p => p.QuoteNumber == id).OrderByDescending(p => p.Id).FirstOrDefaultAsync()
+        var policy = (policyId == null ? null : await query.FirstOrDefaultAsync(p => p.Id == policyId))
+            ?? await query.Where(p => p.QuoteNumber == id).OrderByDescending(p => p.Id).FirstOrDefaultAsync()
             ?? await query.Where(p => p.PolicyNumber == id && p.PolicyStatus != "Draft").OrderByDescending(p => p.Id).FirstOrDefaultAsync()
             ?? await query.Where(p => p.PolicyNumber == id).OrderByDescending(p => p.Id).FirstOrDefaultAsync();
         if (policy == null) return null;
@@ -162,6 +216,8 @@ public class SubmissionRepository : ISubmissionRepository
             ["manualAddress"] = true,
             ["policyInsuranceType"] = policy.InsuranceType ?? "2",
             ["policyType"] = policy.PolicyType,
+            // Without this the wizard's New Business default wins and a policy opens as a quote.
+            ["screenCode"] = policy.PolicyType == "POLICY" ? (isBusiness ? "POLICYBUSINESS" : "POLICYINDIVIDUAL") : null,
             ["policyNumber"] = policy.PolicyNumber,
             ["quoteNumber"] = policy.QuoteNumber,
             ["recordStatus"] = policy.PolicyStatus,
@@ -513,6 +569,7 @@ public class SubmissionRepository : ISubmissionRepository
         policy.PolicyStatus = "Bound";
         policy.UpdatedBy = userId;
         policy.UpdatedOn = DateTime.UtcNow;
+        AddPolicyEvent(clientId, userId, policy, "Bound", "Policy bound. Policy Record updated.");
         await _db.SaveChangesAsync();
 
         return new IssuePolicyResponse(true, policy.PolicyNumber, policy.PolicyStatus,
@@ -619,10 +676,7 @@ public class SubmissionRepository : ISubmissionRepository
                     {
                         // Try parsing: "25-06-2026 00:00:00" → "25-06-2026"
                         var datePart = dateStr.Split()[0];
-                        if (DateOnly.TryParse(datePart, System.Globalization.CultureInfo.GetCultureInfo("en-GB"), System.Globalization.DateTimeStyles.None, out var effDate))
-                            extractedEffDate = effDate;
-                        else if (DateOnly.TryParse(dateStr, out var effDate2))
-                            extractedEffDate = effDate2;
+                        extractedEffDate = PolicyRules.ParseFormDate(datePart);
                     }
                 }
                 if (form.TryGetProperty("expirationDate", out var expDateElem) && expDateElem.ValueKind != JsonValueKind.Null)
@@ -631,10 +685,7 @@ public class SubmissionRepository : ISubmissionRepository
                     if (!string.IsNullOrEmpty(dateStr))
                     {
                         var datePart = dateStr.Split()[0];
-                        if (DateOnly.TryParse(datePart, System.Globalization.CultureInfo.GetCultureInfo("en-GB"), System.Globalization.DateTimeStyles.None, out var expDate))
-                            extractedExpDate = expDate;
-                        else if (DateOnly.TryParse(dateStr, out var expDate2))
-                            extractedExpDate = expDate2;
+                        extractedExpDate = PolicyRules.ParseFormDate(datePart);
                     }
                 }
 
@@ -726,6 +777,12 @@ public class SubmissionRepository : ISubmissionRepository
         // Sync the submission document so the wizard reopens in policy mode
         // (RefreshClientVariable / OnStatusChange on the client side).
         var screenCode = isBusiness ? "POLICYBUSINESS" : "POLICYINDIVIDUAL";
+        var isRenewalIssue = policy.PolicyStage?.Contains("RENEWAL", StringComparison.OrdinalIgnoreCase) == true;
+        AddPolicyEvent(clientId, userId, policy,
+            isRewrite ? "Cancel_Rewrite"
+                : isRenewalIssue ? (isBusiness ? "RenewalBusiness" : "RenewalIndividual")
+                : "NewBusiness",
+            $"Policy {policyNumber} issued. Policy Record created.");
         if (submission != null)
         {
             submission.Status = "Active";
@@ -835,6 +892,8 @@ public class SubmissionRepository : ISubmissionRepository
         await UpsertCommissionAsync(clientId, userId, policy, premium, commissionRow, commissionPct);
 
         var screenCode = isBusiness ? "POLICYBUSINESS" : "POLICYINDIVIDUAL";
+        AddPolicyEvent(clientId, userId, policy, isBusiness ? "EndorsementBusiness" : "EndorsementIndividual",
+            $"Endorsement issued for policy {policy.PolicyNumber}. Policy Record updated.");
         submission.Status = "Active";
         submission.Data = ApplyIssuedIdentity(submission.Data, policy.PolicyNumber, screenCode);
         submission.UpdatedBy = userId;
@@ -1102,7 +1161,7 @@ public class SubmissionRepository : ISubmissionRepository
 
     // Rewrites the submission "form" document after issuing so the wizard reopens the
     // record as a policy (policy number, POLICY type/screen code, Active status, locked).
-    private static string ApplyIssuedIdentity(string dataJson, string policyNumber, string screenCode)
+    private static string ApplyIssuedIdentity(string dataJson, string policyNumber, string screenCode, string recordStatus = "Active")
     {
         try
         {
@@ -1112,7 +1171,7 @@ public class SubmissionRepository : ISubmissionRepository
             form["policyNumber"] = policyNumber;
             form["policyType"] = "POLICY";
             form["screenCode"] = screenCode;
-            form["recordStatus"] = "Active";
+            form["recordStatus"] = recordStatus;
             form["lockSubmission"] = true;
             root["form"] = form;
             return root.ToJsonString();
@@ -1262,6 +1321,75 @@ public class SubmissionRepository : ISubmissionRepository
         }
     }
 
+    // QA IP-18 / IP-22: Contacts read their address from the risk address, which only the
+    // endorsement and rewrite clones used to write. Uses the risk location, else the mailing address.
+    private async Task EnsureRiskAddressAsync(long clientId, long userId, long policyId, JsonNode? root, JsonNode form)
+    {
+        var source = (root?["locations"] as JsonArray)?.FirstOrDefault(n => n != null) ?? form;
+        var line1 = BlankToNull(StringOrNull(source, "addressLine1"));
+        var state = BlankToNull(StringOrNull(source, "state"));
+        var city = BlankToNull(StringOrNull(source, "city"));
+        if (line1 == null && city == null) return;
+
+        var address = await _db.RiskAddresses.FirstOrDefaultAsync(a => a.PolicyId == policyId && a.ClientId == clientId);
+        if (address == null)
+        {
+            address = new RiskAddress
+            {
+                ClientId = clientId,
+                PolicyId = policyId,
+                AddressType = "Risk",
+                IsActive = true,
+                IsManual = true,
+                CreatedBy = userId,
+            };
+            _db.RiskAddresses.Add(address);
+        }
+        address.AddressLine1 = line1;
+        address.AddressLine2 = BlankToNull(StringOrNull(source, "addressLine2"));
+        address.Country = BlankToNull(StringOrNull(source, "country")) ?? "United States";
+        address.State = state;
+        address.City = city;
+        address.County = BlankToNull(StringOrNull(source, "county"));
+        address.ZipCode = BlankToNull(StringOrNull(source, "zip"));
+        address.Latitude = BlankToNull(StringOrNull(source, "latitude"));
+        address.Longitude = BlankToNull(StringOrNull(source, "longitude"));
+        address.UpdatedBy = userId;
+        address.UpdatedOn = DateTime.UtcNow;
+    }
+
+    // QA IP-17 / IP-28: Policy History and Timeline read these rows. Saved by the caller.
+    private void AddPolicyEvent(long clientId, long userId, Policy policy, string transactionType, string description)
+    {
+        var now = DateTime.UtcNow;
+        _db.Audits.Add(new Audit
+        {
+            ClientId = clientId,
+            ActivityType = "Update",
+            RecordId = policy.Id,
+            ActivityDescription = description,
+            Module = "Policy",
+            CreatedBy = userId,
+            CreatedDateTime = now,
+            TableName = "Policy",
+            Transaction = new PolicyTransaction
+            {
+                ClientId = clientId,
+                PolicyNumber = policy.PolicyNumber,
+                EffectiveDate = policy.EffectiveDate,
+                ExpirationDate = policy.ExpiryDate,
+                TransactionType = transactionType,
+                TransactionEffectiveDate = DateOnly.FromDateTime(now),
+                Status = policy.PolicyStatus,
+                MainPolicyId = policy.Id,
+                RedirectionPolicyId = policy.Id,
+                IsShowInTimeline = true,
+                CreatedBy = userId,
+                CreatedOn = now,
+            },
+        });
+    }
+
     private async Task SyncPolicyFromSubmissionAsync(long clientId, long userId, string id, string dataJson, string status)
     {
         JsonNode? root;
@@ -1298,6 +1426,10 @@ public class SubmissionRepository : ISubmissionRepository
             System.Console.WriteLine($"[SyncPolicyFromSubmissionAsync] WARNING: Policy not found for lookupKey={lookupKey}, screenCode={screenCode}");
             return;
         }
+
+        // QA IP-08 / IP-16: an issued policy changes only through Issue, Cancel, Endorse and Do
+        // Not Renew. A wizard save must never overwrite its status, account or insured details.
+        if (policy.PolicyType == "POLICY") return;
 
         System.Console.WriteLine($"[SyncPolicyFromSubmissionAsync] Found policy {policy.Id} for endorsement sync");
 
@@ -1424,6 +1556,8 @@ public class SubmissionRepository : ISubmissionRepository
         // Sync them to the relational tables so they exist "in the database" for both
         // bulk-uploaded and manually saved submissions. Delete+recreate per policy: the
         // arrays are the source of truth and carry no stable row ids.
+        await EnsureRiskAddressAsync(clientId, userId, policy.Id, root, form);
+
         if (root?["additionalInsureds"] is JsonArray insureds)
         {
             var existing = await _db.AdditionalInsureds

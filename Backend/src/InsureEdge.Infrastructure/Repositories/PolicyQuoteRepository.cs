@@ -10,6 +10,7 @@
 //            else First+Middle+Last trimmed (server.js INSURED_NAME constant).
 using InsureEdge.Application.DTOs.QuotesPolicies;
 using InsureEdge.Application.Interfaces;
+using InsureEdge.Application.Services;
 using InsureEdge.Domain.Entities;
 using InsureEdge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -262,21 +263,29 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
     public async Task<PoliciesKpiDto> GetPoliciesKpisAsync(long clientId, string insuredType)
     {
         var type = insuredType.ToLower();
-        var q = BasePolicyAccountQuery(clientId, "POLICY", type);
+        // QA IP-07 / IP-16: counted from the same rows the listing shows, so the tiles always match it.
+        var currentIds = await CurrentRegisterPolicyIdsAsync(clientId, type);
+        var statuses = await _db.Policies
+            .Where(p => currentIds.Contains(p.Id))
+            .Select(p => p.PolicyStatus)
+            .ToListAsync();
 
         return new PoliciesKpiDto(
-            await q.CountAsync(),
-            await q.CountAsync(x => x.Policy.PolicyStatus == "Active"),
-            await q.CountAsync(x => x.Policy.PolicyStatus == "Lapsed"),
-            await q.CountAsync(x => x.Policy.PolicyStatus == "Expired"),
-            await q.CountAsync(x => x.Policy.PolicyStatus == "Cancelled"));
+            statuses.Count,
+            statuses.Count(s => s == "Active"),
+            statuses.Count(s => s == "Bound"),
+            statuses.Count(s => s == "Cancelled"),
+            statuses.Count(s => s == PolicyRules.StatusDoNotRenew));
     }
 
     public async Task<List<PolicyListItemDto>> GetPoliciesAsync(
         long clientId, string insuredType, string? search, string? status, string? sortCol, string? sortDir)
     {
         var type = insuredType.ToLower();
-        var joined = BasePolicyAccountQuery(clientId, "POLICY", type)
+        // QA IP-16: one row per policy number, chosen by the same rule as Policy Summary.
+        var currentIds = await CurrentRegisterPolicyIdsAsync(clientId, type);
+        var joined = RegisterPolicyAccountQuery(clientId, type)
+            .Where(x => currentIds.Contains(x.Policy.Id))
             .Select(x => new
             {
                 x.Policy,
@@ -297,9 +306,6 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         }
         if (!string.IsNullOrWhiteSpace(status))
             joined = joined.Where(x => x.Policy.PolicyStatus == status);
-        else
-            // When no status filter is specified, exclude Inactive policies so endorsed/replaced policies don't show
-            joined = joined.Where(x => x.Policy.PolicyStatus != "Inactive");
 
         joined = (sortCol, sortDir?.ToLower()) switch
         {
@@ -340,12 +346,15 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<List<PolicyTransactionDto>> GetPolicyHistoryAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var main = await _db.Policies
-            .FirstOrDefaultAsync(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft");
+            .FirstOrDefaultAsync(p => p.Id == currentId);
         if (main == null) return new List<PolicyTransactionDto>();
 
+        // The current row changes at each endorsement, so read across every row of this number.
+        var policyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
         var rows = await _db.PolicyTransactions
-            .Where(t => t.ClientId == clientId && t.MainPolicyId == main.Id)
+            .Where(t => t.ClientId == clientId && policyIds.Contains(t.MainPolicyId))
             .OrderByDescending(t => t.CreatedOn)
             .Select(t => new
             {
@@ -361,15 +370,19 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             })
             .ToListAsync();
 
-        return rows.Select(t => new PolicyTransactionDto(
+        // QA IP-17: every row shows dates, using the policy's own when a transaction has none.
+        // QA IP-16: a transaction's stored status is frozen when it was written (an old row can
+        // say Active on a Cancelled policy), so only the latest row carries a status: the
+        // policy's current one.
+        return rows.Select((t, index) => new PolicyTransactionDto(
             t.Id,
             t.PolicyNumber,
-            t.EffectiveDate?.ToString("MM-dd-yyyy"),
-            t.ExpirationDate?.ToString("MM-dd-yyyy"),
+            (t.EffectiveDate ?? main.EffectiveDate)?.ToString("MM-dd-yyyy"),
+            (t.ExpirationDate ?? main.ExpiryDate)?.ToString("MM-dd-yyyy"),
             t.TransactionType,
             t.TransactionTypeLabel,
             t.TransactionEffectiveDate?.ToString("MM-dd-yyyy"),
-            t.Status,
+            index == 0 ? main.PolicyStatus : null,
             t.RedirectionPolicyNumber
         )).ToList();
     }
@@ -378,6 +391,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<PolicySummaryDto?> GetPolicySummaryAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
             .Include(p => p.Account)
             .Include(p => p.Products).ThenInclude(pp => pp.Product)
@@ -391,7 +405,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             .Include(p => p.Claims)
             .Include(p => p.AdditionalInsureds)
             .Include(p => p.RiskAddresses)
-            .FirstOrDefaultAsync(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft");
+            .FirstOrDefaultAsync(p => p.Id == currentId);
 
         if (policy == null) return null;
 
@@ -402,6 +416,8 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         {
             address.AddressLine1, address.AddressLine2, address.City, address.State, address.County, address.Country, address.ZipCode
         }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        // QA IP-18 / IP-22: older policies have no risk address row; use their submission's address.
+        addressText ??= await SubmissionAddressTextAsync(clientId, policy.QuoteNumber);
 
         var producers = policy.Commissions.Select(ToProducerDto).ToList();
 
@@ -426,11 +442,19 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
                 totalBilled,
                 amountPaid,
                 amountDue,
-                unbilled
+                unbilled,
+                PolicyRules.OverdueDays(
+                    policy.Premium.Transactions.Select(t => (t.DueDate, t.IsPaid == true)),
+                    DateOnly.FromDateTime(DateTime.UtcNow))
             );
         }
 
-        var claims = policy.Claims.Select(c => new PolicyClaimSummaryDto(c.ClaimNumber, c.Status)).ToList();
+        // Claims stay on the row they were opened against, so read across every row of this number.
+        var claimPolicyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
+        var claims = await _db.Claims
+            .Where(c => claimPolicyIds.Contains(c.PolicyId))
+            .Select(c => new PolicyClaimSummaryDto(c.ClaimNumber, c.Status))
+            .ToListAsync();
 
         var contacts = policy.AdditionalInsureds.Select(a => new PolicyContactDto(
             string.Join(" ", new[] { a.FirstName, a.MiddleName, a.LastName }.Where(s => !string.IsNullOrWhiteSpace(s))),
@@ -507,6 +531,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<PolicyBillingDetailDto?> GetBillingDetailAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
             .Include(p => p.Extended)
             .Include(p => p.Premium).ThenInclude(pr => pr!.Transactions).ThenInclude(t => t.Extended)
@@ -514,7 +539,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             .Include(p => p.Commissions).ThenInclude(c => c.Producer)
             .Include(p => p.Commissions).ThenInclude(c => c.Intermediary)
             .Include(p => p.Commissions).ThenInclude(c => c.Transactions)
-            .FirstOrDefaultAsync(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft");
+            .FirstOrDefaultAsync(p => p.Id == currentId);
 
         if (policy == null) return null;
 
@@ -616,14 +641,16 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<List<PolicyClaimRowDto>> GetClaimsAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
             .Include(p => p.Account)
-            .FirstOrDefaultAsync(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft");
+            .FirstOrDefaultAsync(p => p.Id == currentId);
         if (policy == null) return new List<PolicyClaimRowDto>();
 
+        var claimPolicyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
         var claims = await _db.Claims
             .Include(c => c.Claimants)
-            .Where(c => c.PolicyId == policy.Id && c.Status != "DRAFT")
+            .Where(c => claimPolicyIds.Contains(c.PolicyId) && c.Status != "DRAFT")
             .OrderByDescending(c => c.CreatedOn)
             .ToListAsync();
         if (claims.Count == 0) return new List<PolicyClaimRowDto>();
@@ -666,12 +693,14 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<List<PolicyTimelineEntryDto>> GetTimelineAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
-            .FirstOrDefaultAsync(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft");
+            .FirstOrDefaultAsync(p => p.Id == currentId);
         if (policy == null) return new List<PolicyTimelineEntryDto>();
 
+        var policyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
         var transactionIds = await _db.PolicyTransactions
-            .Where(t => t.ClientId == clientId && t.MainPolicyId == policy.Id && t.IsShowInTimeline)
+            .Where(t => t.ClientId == clientId && policyIds.Contains(t.MainPolicyId) && t.IsShowInTimeline)
             .Select(t => t.Id)
             .ToListAsync();
         if (transactionIds.Count == 0) return new List<PolicyTimelineEntryDto>();
@@ -706,6 +735,85 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         c.Transactions.Where(t => t.IsPaid == true).Sum(t => t.CommissionAmountDue),
         c.Transactions.Where(t => t.TransactionStatus != "Cancelled").Sum(t => t.CommissionAmountDue)
     );
+
+    // QA IP-08 / IP-16: the one place that decides which row is "the policy" for a number.
+    // Falls back to the newest non-Draft row so a number with no issued row still opens.
+    private async Task<long?> CurrentPolicyIdAsync(long clientId, string policyNumber)
+    {
+        var rows = await _db.Policies
+            .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft")
+            .Select(p => new { p.Id, p.PolicyType, p.PolicyStatus })
+            .ToListAsync();
+        var current = PolicyRules.PickCurrent(
+            rows.Where(r => PolicyRules.IsCurrentCandidate(r.PolicyType, r.PolicyStatus)), r => r.PolicyStatus, r => r.Id);
+        return current?.Id ?? rows.OrderByDescending(r => r.Id).Select(r => (long?)r.Id).FirstOrDefault();
+    }
+
+    private async Task<Domain.Entities.Policy?> CurrentPolicyOrNullAsync(long clientId, string policyNumber)
+    {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
+        return await _db.Policies.FirstOrDefaultAsync(p => p.Id == currentId);
+    }
+
+    private async Task<List<long>> PolicyIdsForNumberAsync(long clientId, string policyNumber) =>
+        await _db.Policies
+            .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber)
+            .Select(p => p.Id)
+            .ToListAsync();
+
+    // The current row of every policy number in the Policies register.
+    private async Task<List<long>> CurrentRegisterPolicyIdsAsync(long clientId, string insuredTypeLower)
+    {
+        var rows = await RegisterPolicyAccountQuery(clientId, insuredTypeLower)
+            .Select(x => new { x.Policy.Id, x.Policy.PolicyNumber, x.Policy.PolicyStatus })
+            .ToListAsync();
+        return rows
+            .GroupBy(r => r.PolicyNumber)
+            .Select(g => PolicyRules.PickCurrent(g, r => r.PolicyStatus, r => r.Id)!.Id)
+            .ToList();
+    }
+
+    // Issued policies plus bound quotes (QA IP-07), without drafts or replaced versions. The
+    // filter spells out PolicyRules.IsCurrentCandidate because it has to translate to SQL.
+    private IQueryable<PolicyAccountPair> RegisterPolicyAccountQuery(long clientId, string insuredTypeLower)
+    {
+        return _db.Policies
+            .Where(p => p.ClientId == clientId
+                && (p.PolicyType == "POLICY" || p.PolicyStatus == "Bound")
+                && p.PolicyStatus != "Draft" && p.PolicyStatus != "Inactive")
+            .Join(_db.Accounts.Where(a => a.ClientId == clientId),
+                p => p.AccountId, a => a.Id,
+                (p, a) => new { Policy = p, Account = a })
+            .Where(x => x.Account.AccountType != null && x.Account.AccountType.ToLower() == insuredTypeLower)
+            .Select(x => new PolicyAccountPair { Policy = x.Policy, Account = x.Account });
+    }
+
+    private async Task<string?> SubmissionAddressTextAsync(long clientId, string? quoteNumber)
+    {
+        if (string.IsNullOrWhiteSpace(quoteNumber)) return null;
+        var data = await _db.Submissions
+            .Where(s => s.ClientId == clientId && s.Id == quoteNumber)
+            .Select(s => s.Data)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(data)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(data);
+            var root = doc.RootElement;
+            var source = root.TryGetProperty("locations", out var locations) && locations.ValueKind == JsonValueKind.Array && locations.GetArrayLength() > 0
+                ? locations[0]
+                : root.TryGetProperty("form", out var form) ? form : root;
+            var parts = new[] { "addressLine1", "addressLine2", "city", "state", "county", "country", "zip" }
+                .Select(key => source.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToList();
+            return parts.Count == 0 ? null : string.Join(", ", parts);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private IQueryable<PolicyAccountPair> BasePolicyAccountQuery(
         long clientId, string policyType, string insuredTypeLower)
@@ -797,17 +905,14 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
                     var root = doc.RootElement;
                     var form = root.TryGetProperty("form", out var formElem) ? formElem : root;
 
-                    // Extract dates with DD-MM-YYYY parsing
+                    // Extract dates
                     if (extractedEffDate == null && form.TryGetProperty("effectiveDate", out var effDateElem) && effDateElem.ValueKind != JsonValueKind.Null)
                     {
                         var dateStr = effDateElem.GetString()?.Trim();
                         if (!string.IsNullOrEmpty(dateStr))
                         {
                             var datePart = dateStr.Split()[0];
-                            if (DateOnly.TryParse(datePart, System.Globalization.CultureInfo.GetCultureInfo("en-GB"), System.Globalization.DateTimeStyles.None, out var effDate))
-                                extractedEffDate = effDate;
-                            else if (DateOnly.TryParse(dateStr, out var effDate2))
-                                extractedEffDate = effDate2;
+                            extractedEffDate = PolicyRules.ParseFormDate(datePart);
                         }
                     }
 
@@ -817,10 +922,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
                         if (!string.IsNullOrEmpty(dateStr))
                         {
                             var datePart = dateStr.Split()[0];
-                            if (DateOnly.TryParse(datePart, System.Globalization.CultureInfo.GetCultureInfo("en-GB"), System.Globalization.DateTimeStyles.None, out var expDate))
-                                extractedExpDate = expDate;
-                            else if (DateOnly.TryParse(dateStr, out var expDate2))
-                                extractedExpDate = expDate2;
+                            extractedExpDate = PolicyRules.ParseFormDate(datePart);
                         }
                     }
 
@@ -1922,15 +2024,14 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
     public async Task<CancelPolicyResultDto> SubmitCancellationAsync(
         long clientId, long userId, string policyNumber, CancelPolicyRequestDto request)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
             .Include(p => p.Extended)
             .Include(p => p.Premium).ThenInclude(pr => pr!.Transactions).ThenInclude(t => t.Extended)
             .Include(p => p.Commissions).ThenInclude(c => c.Intermediary)
             .Include(p => p.Commissions).ThenInclude(c => c.Transactions)
             .Include(p => p.CancellationTransactions)
-            .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber)
-            .OrderByDescending(p => p.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(p => p.Id == currentId);
         if (policy == null) throw new KeyNotFoundException($"Policy '{policyNumber}' not found.");
         if (!string.Equals(policy.PolicyStatus, "Active", StringComparison.OrdinalIgnoreCase))
         {
@@ -2249,12 +2350,11 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
     public async Task<NoticeOfNonRenewalInfoDto?> GetNoticeOfNonRenewalInfoAsync(long clientId, string policyNumber)
     {
+        var currentId = await CurrentPolicyIdAsync(clientId, policyNumber);
         var policy = await _db.Policies
             .Include(p => p.Account)
             .Include(p => p.Intermediary)
-            .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft")
-            .OrderByDescending(p => p.Id)
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(p => p.Id == currentId);
         if (policy == null) return null;
 
         var account = policy.Account;
@@ -2304,24 +2404,25 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         policy.UpdatedOn = now;
         await _db.SaveChangesAsync();
 
-        _db.Audits.Add(new Domain.Entities.Audit
+        var doNotRenewAudit = new Domain.Entities.Audit
         {
             ClientId = clientId,
             ActivityType = "Update",
             RecordId = policy.Id,
-            ActivityDescription = "Policy record updated.",
+            ActivityDescription = "Do Not Renew set. Policy Record updated.",
             Module = "Policy",
             CreatedBy = userId,
             CreatedDateTime = now,
             TableName = "Policy",
-        });
+        };
+        _db.Audits.Add(doNotRenewAudit);
 
         // Best-effort: notice document generation failing (e.g. Plumsail template not
         // configured for this client) should not block the status change itself.
         await _documents.GenerateNoticeOfNonRenewalAsync(policy.Id,
             new NoticeOfNonRenewalSelections(request.CheckBoxYourNonRenewal, request.Attributes));
 
-        _db.PolicyTransactions.Add(new Domain.Entities.PolicyTransaction
+        var doNotRenewTransaction = new Domain.Entities.PolicyTransaction
         {
             ClientId = clientId,
             PolicyNumber = policy.PolicyNumber,
@@ -2335,7 +2436,9 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             IsShowInTimeline = true,
             CreatedBy = userId,
             CreatedOn = now,
-        });
+        };
+        _db.PolicyTransactions.Add(doNotRenewTransaction);
+        doNotRenewAudit.Transaction = doNotRenewTransaction;
         await _db.SaveChangesAsync();
 
         return new DoNotRenewResultDto(policy.PolicyNumber, policy.PolicyStatus);
@@ -2361,27 +2464,26 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             ClientId = clientId,
             ActivityType = "Update",
             RecordId = policy.Id,
-            ActivityDescription = "Policy record updated.",
+            ActivityDescription = "Do Not Renew removed. Policy Record updated.",
             Module = "Policy",
             CreatedBy = userId,
             CreatedDateTime = now,
             TableName = "Policy",
-        });
-
-        _db.PolicyTransactions.Add(new Domain.Entities.PolicyTransaction
-        {
-            ClientId = clientId,
-            PolicyNumber = policy.PolicyNumber,
-            EffectiveDate = policy.EffectiveDate,
-            ExpirationDate = policy.ExpiryDate,
-            TransactionType = "RemoveDoNotRenew",
-            TransactionEffectiveDate = DateOnly.FromDateTime(now),
-            Status = policy.PolicyStatus,
-            MainPolicyId = policy.Id,
-            RedirectionPolicyId = policy.Id,
-            IsShowInTimeline = true,
-            CreatedBy = userId,
-            CreatedOn = now,
+            Transaction = new Domain.Entities.PolicyTransaction
+            {
+                ClientId = clientId,
+                PolicyNumber = policy.PolicyNumber,
+                EffectiveDate = policy.EffectiveDate,
+                ExpirationDate = policy.ExpiryDate,
+                TransactionType = "RemoveDoNotRenew",
+                TransactionEffectiveDate = DateOnly.FromDateTime(now),
+                Status = policy.PolicyStatus,
+                MainPolicyId = policy.Id,
+                RedirectionPolicyId = policy.Id,
+                IsShowInTimeline = true,
+                CreatedBy = userId,
+                CreatedOn = now,
+            },
         });
         await _db.SaveChangesAsync();
 
@@ -2391,10 +2493,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
     // ── Notes ───────────────────────────────────────────────────────────────
 
     private async Task<Domain.Entities.Policy?> FindPolicyForNotesAsync(long clientId, string policyNumber)
-        => await _db.Policies
-            .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber && p.PolicyStatus != "Draft")
-            .OrderByDescending(p => p.Id)
-            .FirstOrDefaultAsync()
+        => await CurrentPolicyOrNullAsync(clientId, policyNumber)
         ?? await _db.Policies
             .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber)
             .OrderByDescending(p => p.Id)
