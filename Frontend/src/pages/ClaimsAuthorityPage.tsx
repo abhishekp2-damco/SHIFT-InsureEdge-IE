@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
 import type { ClaimAuthorityDto } from '../types/Claim';
+import { useSessionState } from '../hooks/useSessionState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -200,7 +201,7 @@ export default function ClaimsAuthorityPage() {
   const [colPanelRect, setColPanelRect] = useState<DOMRect | null>(null);
   const [activeFilter, setActiveFilter] = useState<ColKey | null>(null);
   const [filterAnchorRect, setFilterAnchorRect] = useState<DOMRect | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters] = useSessionState<Record<string, string[]>>('grid-filters:claims-authority', {});
 
   const { data: allData = [], isLoading } = useQuery({
     queryKey: ['claims-authority'],

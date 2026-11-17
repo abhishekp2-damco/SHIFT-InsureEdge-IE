@@ -18,6 +18,8 @@ public class SyncMembersTests
     {
         _tenant.Setup(t => t.ClientId).Returns(1);
         _tenant.Setup(t => t.UserId).Returns(100);
+        _repo.Setup(r => r.GetActiveUserIdsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync((long _, IReadOnlyCollection<long> ids) => ids.ToHashSet());
         _svc = new GroupService(_repo.Object, _tenant.Object);
     }
 

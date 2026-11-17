@@ -4,12 +4,12 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { avatarColor, initials } from './QuotesPoliciesLandingShell';
 import {
-  KpiStat, FilterPopup, ColPanel, FunnelIcon, EyeIcon, RefreshIcon, DocIcon,
-  ICON_DOC, ICON_DOC_CHECK, ICON_DOC_X, ICON_DOC_DRAFT, ICON_DOC_CLOCK,
+  KpiStat, FilterPopup, ColPanel, FunnelIcon, EyeIcon, RefreshIcon,
   evalOp, type AppliedFilters, type ColFilter, type SortState,
 } from './GridHelpers';
 import { quotesPoliciesApi } from '../../api/quotesPolicies';
 import type { PolicyListItemDto, PoliciesKpiDto } from '../../types/Policy';
+import { useSessionState } from '../../hooks/useSessionState';
 
 type Policy = PolicyListItemDto;
 type Kpis = PoliciesKpiDto;
@@ -27,6 +27,51 @@ const COL_DEFS = [
 ] as const;
 
 const ALL_LABELS: Record<string, string> = Object.fromEntries(COL_DEFS.map(c => [c.key, c.label]));
+
+type PolicyKpiIconKind = 'total' | 'active' | 'bound' | 'cancelled' | 'doNotRenew';
+
+function PolicyKpiIcon({ kind }: { kind: PolicyKpiIconKind }) {
+  const isDoNotRenew = kind === 'doNotRenew';
+  return (
+    <svg className="policy-kpi-icon" viewBox="0 0 32 32" width="36" height="36" fill="none" aria-hidden="true">
+      <path d={isDoNotRenew ? 'M7 2.5h10l5.5 5.5v21H7z' : 'M6.5 3.5h12l6 6v18h-18z'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d={isDoNotRenew ? 'M17 2.5V8h5.5' : 'M18.5 3.5v6h6'} stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+
+      {kind === 'total' && (
+        <path d="M19.5 16.2 25 14l5.5 2.2v4.1c0 3.7-2.2 6.5-5.5 8.2-3.3-1.7-5.5-4.5-5.5-8.2z" fill="#f7fbff" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      )}
+      {kind === 'active' && (
+        <>
+          <circle cx="25" cy="19.5" r="4.2" fill="#f7fffb" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M22.8 23.1v5.2l2.2-1.5 2.2 1.5v-5.2" fill="#f7fffb" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        </>
+      )}
+      {kind === 'bound' && (
+        <>
+          <path d="M21.3 18.2h-1.1a3.4 3.4 0 0 0 0 6.8h3.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M25.2 16.4h1.1a3.4 3.4 0 0 1 0 6.8h-3.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M22 20.7h4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </>
+      )}
+      {kind === 'cancelled' && (
+        <>
+          <circle cx="25" cy="22" r="6" fill="#fff8f8" stroke="currentColor" strokeWidth="1.8" />
+          <path d="m20.8 17.8 8.4 8.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </>
+      )}
+      {kind === 'doNotRenew' && (
+        <g transform="translate(13.2 10.2) scale(.7)" stroke="currentColor" strokeWidth="2.15" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 4.5V4a2 2 0 0 0-2.41-1.96" />
+          <path d="M13.9 8.4a2 2 0 0 0-1.26-1.3" />
+          <path d="M21.7 16.2A8 8 0 0 0 22 14v-3a2 2 0 1 0-4 0v-1a2 2 0 0 0-3.63-1.16" />
+          <path d="m7 15-1.8-1.8a2 2 0 0 0-2.79 2.86L6 19.7A7.74 7.74 0 0 0 12 22h2a8 8 0 0 0 5.66-2.34" />
+          <path d="M6 6v8" />
+          <path d="m2 2 20 20" />
+        </g>
+      )}
+    </svg>
+  );
+}
 
 
 type ColKey = typeof COL_DEFS[number]['key'];
@@ -63,7 +108,7 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
   const [kpis, setKpis]         = useState<Kpis | null>(null);
   const [search, setSearch]     = useState('');
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
-  const [filters, setFilters]   = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>('grid-filters:quotes:policies', {});
   const [sort, setSort]         = useState<SortState | null>(null);
   const [page, setPage]         = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -148,11 +193,11 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
 
       {kpis && (
         <div className="kpi-row">
-          <KpiStat label="Total"     value={kpis.total}     color="#1a3b6b" icon={<DocIcon path={ICON_DOC}       />} active={kpiFilter === 'total'}     onClick={() => toggleKpi('total')} />
-          <KpiStat label="Active"    value={kpis.active}    color="#16a34a" icon={<DocIcon path={ICON_DOC_CHECK} />} active={kpiFilter === 'active'}    onClick={() => toggleKpi('active')} />
-          <KpiStat label="Bound"     value={kpis.bound}     color="#0B5AA0" icon={<DocIcon path={ICON_DOC_DRAFT} />} active={kpiFilter === 'bound'}     onClick={() => toggleKpi('bound')} />
-          <KpiStat label="Cancelled" value={kpis.cancelled} color="#dc2626" icon={<DocIcon path={ICON_DOC_X}     />} active={kpiFilter === 'cancelled'} onClick={() => toggleKpi('cancelled')} />
-          <KpiStat label="Do Not Renew" value={kpis.doNotRenew} color="#92400e" icon={<DocIcon path={ICON_DOC_CLOCK} />} active={kpiFilter === 'donotrenew'} onClick={() => toggleKpi('donotrenew')} />
+          <KpiStat label="Total"     value={kpis.total}     color="#0067b1" icon={<PolicyKpiIcon kind="total" />} active={kpiFilter === 'total'}     onClick={() => toggleKpi('total')} />
+          <KpiStat label="Active"    value={kpis.active}    color="#00945e" icon={<PolicyKpiIcon kind="active" />} active={kpiFilter === 'active'}    onClick={() => toggleKpi('active')} />
+          <KpiStat label="Bound"     value={kpis.bound}     color="#a000f2" icon={<PolicyKpiIcon kind="bound" />} active={kpiFilter === 'bound'}     onClick={() => toggleKpi('bound')} />
+          <KpiStat label="Cancelled" value={kpis.cancelled} color="#ef2b2d" icon={<PolicyKpiIcon kind="cancelled" />} active={kpiFilter === 'cancelled'} onClick={() => toggleKpi('cancelled')} />
+          <KpiStat label="Do Not Renew" value={kpis.doNotRenew} color="#4b5355" icon={<PolicyKpiIcon kind="doNotRenew" />} active={kpiFilter === 'donotrenew'} onClick={() => toggleKpi('donotrenew')} />
         </div>
       )}
 
@@ -207,7 +252,6 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
                     }}
                   >&#9776;</button>
                 </th>
-                <th style={{ width: 28 }}></th>
                 <th>Action</th>
                 {visibleCols.id          && <Th col="id"           label="Policy Number" sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
                 {visibleCols.insuredName && <Th col="insuredName"  label="Insured Name"  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
@@ -221,11 +265,10 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
               </tr>
             </thead>
             <tbody>
-              {pageRows.length === 0 && <tr><td colSpan={15} className="no-data">No Data Available</td></tr>}
+              {pageRows.length === 0 && <tr><td colSpan={11} className="no-data">No Data Available</td></tr>}
               {pageRows.map((p, i) => (
                 <tr key={p.id} className="data-row" onClick={() => navigate('/quotes-policies/policies/' + p.id + '?insuredType=' + insuredType)}>
                   <td className="row-num">{(page - 1) * pageSize + i + 1}</td>
-                  <td><input type="checkbox" /></td>
                   <td><div className="action-cell"><button className="action-btn" title="View Policy Summary" onClick={e => { e.stopPropagation(); navigate('/quotes-policies/policies/' + p.id + '?insuredType=' + insuredType); }}><EyeIcon /></button></div></td>
                   {visibleCols.id && <td className="mono" style={{ color: '#1a3b6b' }}>{p.id}</td>}
                   {visibleCols.insuredName && (
@@ -249,7 +292,7 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
           </table>
         </div>
 
-        <div className="table-footer">
+        {showPagination(sorted.length) && <div className="table-footer">
           <span>
             Showing&nbsp;
             <select className="page-size-select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
@@ -257,13 +300,12 @@ export default function PoliciesRegister({ insuredType }: { insuredType: string 
             </select>
             &nbsp;records · {sorted.length.toLocaleString()} results
           </span>
-          {/* QP-05: pagination only with 10 or more records. */}
-          <div className="pagination" style={showPagination(sorted.length) ? undefined : { display: 'none' }}>
+          <div className="pagination">
             <button className="page-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>&#8249;</button>
             {renderPages()}
             <button className="page-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>&#8250;</button>
           </div>
-        </div>
+        </div>}
       </div>
 
       {filterPopup && (

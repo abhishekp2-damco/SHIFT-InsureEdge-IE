@@ -51,6 +51,8 @@ export default function PaginationBar({
   onPageSizeChange,
   pageSizeOptions = [10, 25, 50],
 }: PaginationBarProps) {
+  if (!showPagination(total)) return null;
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = Math.min(Math.max(page, 1), totalPages);
   const disabledPrev = currentPage <= 1;
@@ -79,8 +81,7 @@ export default function PaginationBar({
           <span>Results</span>
         </div>
 
-        {/* QP-05: page buttons only once the listing has 10 or more records. */}
-        <div style={{ display: showPagination(total) ? 'flex' : 'none', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button aria-label="First page" onClick={() => goTo(1)} disabled={disabledPrev} style={{ ...buttonBase, color: disabledPrev ? '#b8c2cc' : '#334155', background: disabledPrev ? '#f8fafc' : '#fff', cursor: disabledPrev ? 'default' : 'pointer' }}><Chevron direction="first" /></button>
           <button aria-label="Previous page" onClick={() => goTo(currentPage - 1)} disabled={disabledPrev} style={{ ...buttonBase, color: disabledPrev ? '#b8c2cc' : '#334155', background: disabledPrev ? '#f8fafc' : '#fff', cursor: disabledPrev ? 'default' : 'pointer' }}><Chevron direction="prev" /></button>
           {pageWindow(currentPage, totalPages).map((item, index) => item === 'ellipsis' ? (

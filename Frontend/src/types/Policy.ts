@@ -135,6 +135,7 @@ export interface PolicyBillingDto {
   amountPaid: number;
   amountDue: number;
   unbilledPremium: number;
+  nextPaymentDueAmount: number;
   overdueDays: number;
 }
 
@@ -152,6 +153,7 @@ export interface PolicyContactDto {
 
 export interface PolicySummaryDto {
   policyNumber: string;
+  submissionId: string | null;
   status: string | null;
   lob: string | null;
   subProduct: string | null;

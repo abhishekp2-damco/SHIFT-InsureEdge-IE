@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import './DatePicker.css';
 
 const MONTHS_LONG = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
@@ -22,7 +23,7 @@ function buildGrid(year: number, month: number) {
 
 function CalendarIcon() {
   return (
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" aria-hidden="true">
       <rect x="3" y="4" width="18" height="17" rx="1" />
       <path d="M16 2v4M8 2v4M3 9h18M7 13h2M11 13h2M15 13h2M7 17h2M11 17h2M15 17h2" />
     </svg>
@@ -93,24 +94,25 @@ export default function DatePicker({ value, onChange, hasError, disabled, mode =
   const years = Array.from({ length: 12 }, (_, index) => firstVisibleYear + index);
   const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
   const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight;
-  const popupHeight = mode === 'year' ? 190 : 320;
-  const popupLeft = rect ? Math.max(4, Math.min(rect.left, viewportWidth - 290)) : 0;
-  const popupTop = rect ? (rect.bottom + 4 + popupHeight > viewportHeight ? rect.top - popupHeight - 4 : rect.bottom + 4) : 0;
+  const popupHeight = mode === 'year' ? 190 : 267;
+  const popupWidth = mode === 'year' ? 290 : 240;
+  const popupLeft = rect ? Math.max(4, Math.min(rect.left, viewportWidth - popupWidth - 4)) : 0;
+  const popupTop = rect ? (rect.bottom + popupHeight > viewportHeight ? rect.top - popupHeight : rect.bottom) : 0;
 
   return (
-      <div ref={anchorRef} style={{ position: mode === 'year' ? 'relative' : undefined }}>
-        <div className={mode === 'year' ? 'ap-modal__datewrap' : undefined}
+      <div ref={anchorRef} className={mode === 'date' ? 'shared-date-picker' : undefined} style={{ position: mode === 'year' ? 'relative' : undefined }}>
+        <div className={mode === 'year' ? 'ap-modal__datewrap' : `shared-date-picker__control${open ? ' shared-date-picker__control--open' : ''}${hasError ? ' shared-date-picker__control--error' : ''}${disabled ? ' shared-date-picker__control--disabled' : ''}`}
           style={mode === 'year' ? undefined : { display: 'flex', alignItems: 'center', height: 34, border: `1px solid ${hasError ? '#c62828' : '#aeb7c2'}`, borderRadius: 3, background: hasError ? '#fff5f5' : '#f6f8fb', overflow: 'hidden' }}>
           <input type="text" value={value} disabled={disabled} inputMode={mode === 'year' ? 'numeric' : undefined}
-            maxLength={mode === 'year' ? 4 : undefined}
+            maxLength={mode === 'year' ? 4 : 10}
             onChange={event => onChange(mode === 'year' ? event.target.value.replace(/\D/g, '').slice(0, 4) : event.target.value)}
             placeholder={placeholder ?? (mode === 'year' ? '####' : 'MM-DD-YYYY')}
             aria-label={mode === 'year' ? 'Year Business Started' : undefined}
-            className={mode === 'year' ? `ap-modal__inp ap-modal__inp--date client-year-picker__input${hasError ? ' ap-modal__inp--err' : ''}` : undefined}
+            className={mode === 'year' ? `ap-modal__inp ap-modal__inp--date client-year-picker__input${hasError ? ' ap-modal__inp--err' : ''}` : 'shared-date-picker__input'}
             style={mode === 'year' ? undefined : { flex: 1, minWidth: 0, border: 'none', background: 'transparent', outline: 'none', fontSize: 13, padding: '0 10px', height: '100%' }} />
           <button type="button" onClick={toggle} disabled={disabled} aria-label={mode === 'year' ? 'Choose year' : 'Choose date'}
             aria-haspopup="dialog" aria-expanded={open}
-            className={mode === 'year' ? 'ap-modal__cal-btn client-year-picker__cal-btn' : undefined}
+            className={mode === 'year' ? 'ap-modal__cal-btn client-year-picker__cal-btn' : 'shared-date-picker__button'}
             style={mode === 'year' ? undefined : { height: 34, width: 36, border: 'none', borderLeft: '1px solid #e5e7eb', background: 'transparent', cursor: disabled ? 'default' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <CalendarIcon />
           </button>
@@ -118,7 +120,7 @@ export default function DatePicker({ value, onChange, hasError, disabled, mode =
 
       {open && rect && (
         <div ref={popupRef} role="dialog" aria-label={mode === 'year' ? 'Choose Year' : 'Choose Date'}
-          className={mode === 'year' ? 'ap-cal client-year-picker__popup' : undefined}
+          className={mode === 'year' ? 'ap-cal client-year-picker__popup' : 'shared-date-picker__popup'}
           style={mode === 'year' ? undefined : { position: 'fixed', top: popupTop, left: popupLeft, zIndex: 9999, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', width: 282, padding: 14 }}>
           {mode === 'year' ? (
             <>

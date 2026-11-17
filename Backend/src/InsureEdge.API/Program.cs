@@ -107,6 +107,8 @@ builder.Services.AddHostedService<AutoRenewalHostedService>();
 builder.Services.AddHttpClient("disbursecloud", c => c.Timeout = TimeSpan.FromSeconds(60));
 builder.Services.AddScoped<InsureEdge.Application.Interfaces.IDisburseCloudClient, InsureEdge.Infrastructure.Services.DisburseCloudClient>();
 builder.Services.AddScoped<InsureEdge.Infrastructure.BackgroundJobs.IntermediaryCommissionDisburseTimerJob>();
+builder.Services.AddScoped<InsureEdge.Infrastructure.BackgroundJobs.IIntermediaryCommissionDisburseTimerJob>(
+    services => services.GetRequiredService<InsureEdge.Infrastructure.BackgroundJobs.IntermediaryCommissionDisburseTimerJob>());
 builder.Services.AddHostedService<InsureEdge.Infrastructure.BackgroundJobs.IntermediaryCommissionDisburseHostedService>();
 
 // LenderDock: mortgagee bill/coverage notifications for Endorsement, Cancellation, and

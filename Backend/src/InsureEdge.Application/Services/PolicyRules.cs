@@ -1,5 +1,6 @@
 // AI_GENERATED | HUMAN_VALIDATION_REQUIRED
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace InsureEdge.Application.Services;
 
@@ -11,6 +12,43 @@ namespace InsureEdge.Application.Services;
 public static class PolicyRules
 {
     public const string StatusDoNotRenew = "DONOTRENEW";
+    private static readonly Regex OutsystemsPolicyNumber = new(
+        @"^\d{3}-\d{5}-(\d{7})-\d{2}$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex LegacyPolicyNumber = new(
+        @"^HB-\d{4}-(\d+)$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// Builds the IE US H&amp;B OutSystems identifier:
+    /// client-intermediary-policy-sequence-base-suffix.
+    /// </summary>
+    public static string FormatPolicyNumber(long clientId, long intermediaryId, int sequence)
+    {
+        if (clientId is < 0 or > 999)
+            throw new ArgumentOutOfRangeException(nameof(clientId), "Client ID must fit the 3-digit policy-number segment.");
+        if (intermediaryId is < 0 or > 99_999)
+            throw new ArgumentOutOfRangeException(nameof(intermediaryId), "Intermediary ID must fit the 5-digit policy-number segment.");
+        if (sequence is < 1 or > 9_999_999)
+            throw new ArgumentOutOfRangeException(nameof(sequence), "Policy sequence must be between 1 and 9,999,999.");
+
+        return $"{clientId:D3}-{intermediaryId:D5}-{sequence:D7}-00";
+    }
+
+    /// <summary>
+    /// Reads the sequence from both the current OutSystems shape and legacy HB-year values.
+    /// Accepting the legacy shape keeps allocation collision-free while a data migration is pending.
+    /// </summary>
+    public static bool TryGetPolicySequence(string? policyNumber, out int sequence)
+    {
+        sequence = 0;
+        if (string.IsNullOrWhiteSpace(policyNumber)) return false;
+
+        var value = policyNumber.Trim();
+        var match = OutsystemsPolicyNumber.Match(value);
+        if (!match.Success) match = LegacyPolicyNumber.Match(value);
+        return match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out sequence);
+    }
 
     // Is this row a candidate for "the policy"? Drafts are unfinished work and Inactive rows
     // are versions already replaced by an endorsement.
@@ -45,5 +83,16 @@ public static class PolicyRules
     {
         var oldest = instalments.Where(i => !i.IsPaid && i.DueDate < today).Select(i => (DateOnly?)i.DueDate).Min();
         return oldest == null ? 0 : today.DayNumber - oldest.Value.DayNumber;
+    }
+
+    // Matches OutSystems GetPolicyBillingSummary: the amount shown below the chart is the
+    // total due on the earliest unpaid payment date, not the balance of every future instalment.
+    public static decimal NextPaymentDueAmount(IEnumerable<(DateOnly DueDate, decimal AmountDue, bool IsPaid)> instalments)
+    {
+        var unpaid = instalments.Where(i => !i.IsPaid).ToList();
+        if (unpaid.Count == 0) return 0m;
+
+        var nextDueDate = unpaid.Min(i => i.DueDate);
+        return unpaid.Where(i => i.DueDate == nextDueDate).Sum(i => i.AmountDue);
     }
 }

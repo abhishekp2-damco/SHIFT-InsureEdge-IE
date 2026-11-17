@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS account (
     intermediary_id          bigint        REFERENCES intermediary(id),
     producer_id              bigint        REFERENCES producer(id),
     legal_business_name      varchar(75),
-    doing_business_as        varchar(50),
+    doing_business_as        varchar(75),
     legal_entity_type        varchar(50),
     date_business_started    date,
     industry_type            varchar(50),

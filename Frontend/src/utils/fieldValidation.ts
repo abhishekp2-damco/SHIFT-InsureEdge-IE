@@ -17,6 +17,27 @@ export const COUNTY_MAX = 50;
 // QA QP-20: Organization Name / Doing Business As.
 export const ORG_NAME_MAX = 75;
 
+// New Submission / Policy Information primary named-insured fields.
+export const POLICY_PERSON_NAME_MAX = 50;
+const POLICY_PERSON_NAME_CHARS = /^[A-Za-z@'.& -]+$/;
+
+export function sanitizePolicyPersonName(value: string): string {
+  return value.replace(/[^A-Za-z@'.& -]/g, '').slice(0, POLICY_PERSON_NAME_MAX);
+}
+
+export function checkPolicyPersonName(
+  e: Errors,
+  key: string,
+  value: string | undefined | null,
+  label: string,
+  isRequired = false,
+) {
+  if (isBlank(value)) { if (isRequired) e[key] = required(label); return; }
+  if (value!.length > POLICY_PERSON_NAME_MAX || value!.startsWith(' ') || !POLICY_PERSON_NAME_CHARS.test(value!)) {
+    e[key] = invalid(label);
+  }
+}
+
 // QA QP-05: listings show pagination only once they hold this many records.
 export const PAGINATION_MIN_RECORDS = 10;
 export const showPagination = (total: number) => total >= PAGINATION_MIN_RECORDS;
@@ -45,6 +66,13 @@ export function formatPhone(raw?: string | null): string {
   if (d.length <= 3) return `(${d}`;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+// View-mode phone values use one application-wide North American display format.
+// Keep this separate from formatPhone(), which is also used as an input mask.
+export function formatPhoneView(raw?: string | null): string {
+  const formatted = formatPhone(raw);
+  return formatted ? `+1 ${formatted}` : '';
 }
 
 // Masks a US ZIP Code as 12345-6789 while the user types.

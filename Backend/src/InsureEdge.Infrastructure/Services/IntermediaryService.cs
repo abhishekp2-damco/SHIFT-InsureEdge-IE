@@ -5,13 +5,14 @@ using InsureEdge.Domain.Entities;
 using InsureEdge.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace InsureEdge.Infrastructure.Services;
 
 public class IntermediaryService(
     InsureEdgeDbContext db, ICurrentTenantService tenant,
-    IEmailService email, IConfiguration config, ILogger<IntermediaryService> log)
+    IServiceProvider services, IConfiguration config, ILogger<IntermediaryService> log)
 {
     public async Task<List<IntermediaryListItemDto>> GetListAsync()
         => await db.Intermediaries
@@ -63,7 +64,7 @@ public class IntermediaryService(
         return Map(intermediary);
     }
 
-    private async Task SendDisburseCloudRegistrationEmailAsync(Intermediary intermediary)
+    public async Task SendDisburseCloudRegistrationEmailAsync(Intermediary intermediary)
     {
         try
         {
@@ -79,6 +80,7 @@ public class IntermediaryService(
             var encodedValue = $"{intermediary.CommissionDisburseEmail}|Agency|{vatNo}|{intermediary.IntermediaryName}";
             var registerUrl = $"{baseUrl}?companySecretKey={Uri.EscapeDataString(secretKey)}&encodedValue={Uri.EscapeDataString(encodedValue)}";
 
+            var email = services.GetRequiredService<IEmailService>();
             await email.SendDisburseCloudRegistrationAsync(intermediary.CommissionDisburseEmail!, intermediary.IntermediaryName, registerUrl);
         }
         catch (Exception ex)

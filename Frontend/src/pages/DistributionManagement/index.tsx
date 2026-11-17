@@ -13,6 +13,7 @@ import AddProducersPage from './AddProducersPage';
 import ReviewSubmitPage from './ReviewSubmitPage';
 import ViewIntermediaryPage from './ViewIntermediaryPage';
 import BulkUploadModal from './BulkUploadModal';
+import { useSessionState } from '../../hooks/useSessionState';
 
 const PERMISSIONS = { canCreate: true, canEdit: true, canDelete: false };
 const DEFAULT_PAGE_SIZE = 10;
@@ -368,7 +369,7 @@ function ListPage({ onAdd, onView }: { onAdd: () => void; onView: (item: Interme
   const [cond,       setCond]       = useState<CondState>(EMPTY_COND);
   const [vPending,   setVPending]   = useState<string[]>([]);
   const [vSearch,    setVSearch]    = useState('');
-  const [appliedFilters, setAppliedFilters] = useState<Record<string, ColFilter>>({});
+  const [appliedFilters, setAppliedFilters] = useSessionState<Record<string, ColFilter>>('grid-filters:distribution', {});
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3500); };

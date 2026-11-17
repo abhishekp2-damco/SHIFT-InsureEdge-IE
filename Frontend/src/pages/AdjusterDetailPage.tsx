@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { adjustersApi } from '../api/adjusters';
 import type { TempAdjusterDto, TempAdjusterLicenseDto, UpsertTempAdjusterRequest } from '../types/Adjuster';
+import * as fv from '../utils/fieldValidation';
 
 const inputStyle: CSSProperties = { height: 34, border: '1px solid #aeb7c2', borderRadius: 3, background: '#f6f8fb', padding: '0 10px', fontSize: 13, width: '100%' };
 const panelStyle: CSSProperties = { border: '1px solid #d8dee6', borderRadius: 4, background: '#fff', padding: 16, marginBottom: 16 };
@@ -33,9 +34,20 @@ function ReadField({ label, value }: { label: string; value?: string | null }) {
   return <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{label}</div><div style={{ fontSize: 14, color: '#000', fontWeight: 500 }}>{value || '-'}</div></div>;
 }
 
-function EditField({ label, value, onChange }: { label: string; value?: string | null; onChange: (value: string) => void }) {
-  return <label style={{ display: 'grid', gap: 6, fontSize: 13, color: '#000', fontWeight: 500 }}>{label}<input value={value ?? ''} onChange={event => onChange(event.target.value)} style={inputStyle} /></label>;
+function EditField({ label, value, onChange, maxLength, error }: { label: string; value?: string | null; onChange: (value: string) => void; maxLength?: number; error?: string }) {
+  return <label style={{ display: 'grid', gap: 6, fontSize: 13, color: '#000', fontWeight: 500 }}>{label}<input value={value ?? ''} onChange={event => onChange(event.target.value)} maxLength={maxLength} style={{ ...inputStyle, borderColor: error ? '#c62828' : '#aeb7c2' }} />{error && <span className="error-msg">{error}</span>}</label>;
 }
+
+const addressFieldMaxLengths: Partial<Record<FormKey, number>> = {
+  registeredAddressLine1: fv.ADDRESS_LINE_MAX,
+  registeredAddressLine2: fv.ADDRESS_LINE_MAX,
+  registeredCity: fv.CITY_MAX,
+  registeredCounty: fv.COUNTY_MAX,
+  mailingAddressLine1: fv.ADDRESS_LINE_MAX,
+  mailingAddressLine2: fv.ADDRESS_LINE_MAX,
+  mailingCity: fv.CITY_MAX,
+  mailingCounty: fv.COUNTY_MAX,
+};
 
 function Actions({ onCancel, onSave, saving }: { onCancel: () => void; onSave: () => void; saving: boolean }) {
   return <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}><button type="button" onClick={onCancel} className="btn-secondary" style={{ fontSize: 13 }}>Cancel</button><button type="button" onClick={onSave} disabled={saving} className="btn-primary" style={{ fontSize: 13 }}>{saving ? 'Saving...' : 'Save'}</button></div>;
@@ -58,6 +70,7 @@ export default function AdjusterDetailPage() {
   const [editing, setEditing] = useState<Section>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [accessPerms, setAccessPerms] = useState<Record<string, string[]>>({});
   const [savedAccessPerms, setSavedAccessPerms] = useState<Record<string, string[]>>({});
 
@@ -86,6 +99,12 @@ export default function AdjusterDetailPage() {
 
   const setValue = (key: FormKey, value: string) => setForm(current => ({ ...current, [key]: value }));
   const saveSection = async () => {
+    if (editing === 'contact') {
+      const validationErrors: Record<string, string> = {};
+      fv.checkPhonesDiffer(validationErrors, 'telephoneNumber', 'alternativeTelephoneNumber', form.telephoneNumber, form.alternativeTelephoneNumber);
+      setFieldErrors(validationErrors);
+      if (Object.keys(validationErrors).length > 0) return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -103,6 +122,7 @@ export default function AdjusterDetailPage() {
         setSavedAccessPerms(accessPerms);
       }
       setEditing(null);
+      setFieldErrors({});
     } catch {
       setError('Unable to save adjuster details. Please check the API/database connection.');
     } finally {
@@ -115,6 +135,7 @@ export default function AdjusterDetailPage() {
       setAccessPerms(savedAccessPerms);
     }
     setEditing(null);
+    setFieldErrors({});
   };
   const licenseRows = form.licenses ?? [];
   const updateLicense = (index: number, key: keyof TempAdjusterLicenseDto, value: string) => setForm(current => ({ ...current, licenses: (current.licenses ?? []).map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row) }));
@@ -127,7 +148,7 @@ export default function AdjusterDetailPage() {
   const registeredFields: [string, FormKey][] = [['Address Line 1', 'registeredAddressLine1'], ['Address Line 2', 'registeredAddressLine2'], ['Country', 'registeredCountry'], ['State', 'registeredState'], ['City', 'registeredCity'], ['County', 'registeredCounty'], ['Zip Code', 'registeredZipCode'], ['Latitude', 'registeredLatitude'], ['Longitude', 'registeredLongitude']];
   const mailingFields: [string, FormKey][] = [['Address Line 1', 'mailingAddressLine1'], ['Address Line 2', 'mailingAddressLine2'], ['Country', 'mailingCountry'], ['State', 'mailingState'], ['City', 'mailingCity'], ['County', 'mailingCounty'], ['Zip Code', 'mailingZipCode'], ['Latitude', 'mailingLatitude'], ['Longitude', 'mailingLongitude']];
 
-  const renderSection = (title: string, section: Section, fields: [string, FormKey][], columns = '1fr 1fr') => <Panel><SectionTitle title={title} editing={editing === section} onEdit={() => setEditing(section)} />{editing === section ? <><div style={{ display: 'grid', gridTemplateColumns: columns, gap: 14 }}>{fields.map(([label, key]) => <EditField key={key} label={label} value={form[key] as string | null | undefined} onChange={value => setValue(key, value)} />)}</div><Actions onCancel={cancelEdit} onSave={saveSection} saving={saving} /></> : <div style={{ display: 'grid', gridTemplateColumns: columns, gap: '22px 16px' }}>{fields.map(([label, key]) => <ReadField key={key} label={label} value={record[key as keyof TempAdjusterDto] as string | null | undefined} />)}</div>}</Panel>;
+  const renderSection = (title: string, section: Section, fields: [string, FormKey][], columns = '1fr 1fr') => <Panel><SectionTitle title={title} editing={editing === section} onEdit={() => { setFieldErrors({}); setEditing(section); }} />{editing === section ? <><div style={{ display: 'grid', gridTemplateColumns: columns, gap: 14 }}>{fields.map(([label, key]) => <EditField key={key} label={label} value={form[key] as string | null | undefined} onChange={value => setValue(key, value)} maxLength={addressFieldMaxLengths[key]} error={fieldErrors[key]} />)}</div><Actions onCancel={cancelEdit} onSave={saveSection} saving={saving} /></> : <div style={{ display: 'grid', gridTemplateColumns: columns, gap: '22px 16px' }}>{fields.map(([label, key]) => <ReadField key={key} label={label} value={key === 'telephoneNumber' || key === 'alternativeTelephoneNumber' ? fv.formatPhoneView(record[key]) : record[key as keyof TempAdjusterDto] as string | null | undefined} />)}</div>}</Panel>;
 
   return <div style={{ padding: '16px 16px 78px', background: '#fff', minHeight: '100%' }}><h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: '#111827' }}>View Adjuster</h1><div style={{ fontSize: 12, color: '#0f172a', marginTop: 6, marginBottom: 16 }}>Adjuster Management / Primary Information</div>{error && <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 13 }}>{error}</div>}<div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 0, border: '1px solid #d8dee6', borderRadius: 4, marginBottom: 16 }}><div style={{ padding: 16, borderRight: '1px solid #d8dee6' }}><Panel><SectionTitle title="User Primary Information" editing={editing === 'primary'} onEdit={() => setEditing('primary')} /><div style={{ height: 42, background: '#e3faef', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 12px', color: '#006b3c', marginBottom: 16 }}><strong>User ID - {record.userCode}</strong><span style={{ color: '#000', fontSize: 11 }}>Auto Generated</span></div>{editing === 'primary' ? <><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>{primaryFields.map(([label, key]) => <EditField key={key} label={label} value={form[key] as string | null | undefined} onChange={value => setValue(key, value)} />)}</div><Actions onCancel={cancelEdit} onSave={saveSection} saving={saving} /></> : <><ProfileImage /><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '22px 16px' }}>{primaryFields.map(([label, key]) => <ReadField key={key} label={label} value={record[key as keyof TempAdjusterDto] as string | null | undefined} />)}</div></>}</Panel>{renderSection('Contact Details', 'contact', contactFields)}</div><div style={{ padding: 16 }}>{renderSection('Registered Address', 'registered', registeredFields, '1fr 1fr 1fr')}{renderSection('Mailing Address', 'mailing', mailingFields, '1fr 1fr 1fr')}</div></div>
     <Panel><SectionTitle title="Adjuster License Details" editing={editing === 'license'} onEdit={() => setEditing('license')} />{editing === 'license' ? <><div style={{ display: 'grid', gap: 12 }}>{licenseRows.map((row, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 14, alignItems: 'end' }}><EditField label="Licensed States" value={row.licensedState} onChange={value => updateLicense(index, 'licensedState', value)} /><EditField label="License Number" value={row.licenseNumber} onChange={value => updateLicense(index, 'licenseNumber', value)} /><EditField label="License Start Date" value={row.licenseStartDate} onChange={value => updateLicense(index, 'licenseStartDate', value)} /><EditField label="License Expiration Date" value={row.licenseExpirationDate} onChange={value => updateLicense(index, 'licenseExpirationDate', value)} /><button type="button" onClick={() => setForm(current => ({ ...current, licenses: licenseRows.length <= 1 ? licenseRows : licenseRows.filter((_, rowIndex) => rowIndex !== index) }))} style={{ height: 34, background: 'transparent', color: '#111827' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M6 6l1 15h10l1-15" /></svg></button></div>)}</div><div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}><button type="button" onClick={() => setForm(current => ({ ...current, licenses: [...(current.licenses ?? []), { licensedState: '', licenseNumber: '', licenseStartDate: '', licenseExpirationDate: '' }] }))} style={{ height: 34, border: '1px solid #0B5AA0', background: '#0B5AA0', color: '#fff', borderRadius: 3, padding: '0 16px', fontWeight: 700 }}>+ Add New Adjuster License</button></div><Actions onCancel={cancelEdit} onSave={saveSection} saving={saving} /></> : <div style={{ display: 'grid', gap: 12 }}>{(record.licenses.length ? record.licenses : [{ licensedState: '-', licenseNumber: '-', licenseStartDate: '-', licenseExpirationDate: '-' }]).map((row, index) => <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}><ReadField label="Licensed States" value={row.licensedState} /><ReadField label="License Number" value={row.licenseNumber} /><ReadField label="License Start Date" value={row.licenseStartDate} /><ReadField label="License Expiration Date" value={row.licenseExpirationDate} /></div>)}</div>}</Panel>

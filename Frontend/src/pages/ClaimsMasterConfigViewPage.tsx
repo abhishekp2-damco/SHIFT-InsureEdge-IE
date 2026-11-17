@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { configurationsApi } from '../api/configurations';
+import { showPagination } from '../utils/fieldValidation';
 
 // Derive a human-readable "Value Label" from the configuration name
 function getValueLabel(tableName: string): string {
@@ -240,7 +241,7 @@ export default function ClaimsMasterConfigViewPage() {
         </div>
 
         {/* Pagination */}
-        {data && data.totalValues > 0 && (
+        {data && showPagination(data.totalValues) && (
           <div style={{ display: 'flex', alignItems: 'center', marginTop: 14, gap: 0 }}>
             {/* Left: Showing X records from N Results — all on one line, no wrapping */}
             <span style={{ fontSize: 13, color: '#374151', flexShrink: 0 }}>Showing</span>

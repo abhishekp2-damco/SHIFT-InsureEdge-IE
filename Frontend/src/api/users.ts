@@ -12,6 +12,15 @@ const permissionKeys = [
   'isViewSensitiveInfo', 'isAccessSensitiveDoc', 'isApproveReject',
 ] as const;
 
+const QUOTES_POLICIES_MODULE = 'Quotes & Policies';
+const QUOTES_POLICIES_SCREENS = new Map<string, string>([
+  ['NEWBUSINESSINDIVIDUAL', 'New Business Quote'],
+  ['ENDORSEMENTINDIVIDUAL', 'Endorsement Quote'],
+  ['RENEWALINDIVIDUAL', 'Renewal Quote'],
+  ['POLICIESINDIVIDUAL', 'Policies'],
+  ['POLICYSUMMARY', 'Policy Summary'],
+]);
+
 function numericId(value: unknown): number | null {
   const id = typeof value === 'number' ? value : Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -32,7 +41,7 @@ function normalizeModules(data: unknown): ModuleRow[] {
     if (id === null || typeof module.moduleName !== 'string') return [];
 
     const rawScreens = Array.isArray(module.screens) ? module.screens : [];
-    const screens = rawScreens.flatMap(rawScreen => {
+    let screens = rawScreens.flatMap(rawScreen => {
       if (!rawScreen || typeof rawScreen !== 'object') return [];
       const screen = rawScreen as WireRecord;
       const screenId = numericId(screen.id);
@@ -47,6 +56,18 @@ function normalizeModules(data: unknown): ModuleRow[] {
         moduleId: numericId(screen.moduleId) ?? id,
       }];
     });
+
+    if (module.moduleName === QUOTES_POLICIES_MODULE) {
+      screens = screens
+        .filter(screen => QUOTES_POLICIES_SCREENS.has(screen.screenCode.toUpperCase()))
+        .map(screen => ({
+          ...screen,
+          screenName: QUOTES_POLICIES_SCREENS.get(screen.screenCode.toUpperCase())!,
+        }))
+        .sort((left, right) =>
+          Array.from(QUOTES_POLICIES_SCREENS.keys()).indexOf(left.screenCode.toUpperCase())
+          - Array.from(QUOTES_POLICIES_SCREENS.keys()).indexOf(right.screenCode.toUpperCase()));
+    }
 
     return [{ id, moduleName: module.moduleName, screens }];
   });

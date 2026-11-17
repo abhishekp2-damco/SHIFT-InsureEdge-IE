@@ -33,6 +33,7 @@ public class GroupService
     public async Task<Group> CreateGroupAsync(CreateGroupRequest req)
     {
         ValidateGroupInfo(req.GroupName, req.GroupLeader, req.GroupEmailId, req.GroupDesc);
+        var memberIds = await ValidateEligibleUsersAsync(req.GroupLeader, req.MemberIds);
 
         var group = Group.Create(
             string.Empty, req.GroupName, req.GroupEmailId,
@@ -43,7 +44,7 @@ public class GroupService
             group.UpdateInfo(req.GroupName, req.GroupEmailId, req.GroupLeader,
                 req.GroupDesc, GroupStatus.Inactive, _tenant.UserId);
 
-        return await _repo.CreateAsync(group, req.MemberIds, req.Permissions);
+        return await _repo.CreateAsync(group, memberIds, req.Permissions ?? []);
     }
 
     // Non-consuming preview for the Add Group UI. The authoritative value is
@@ -57,6 +58,7 @@ public class GroupService
         ValidateGroupInfo(req.GroupName, req.GroupLeader, req.GroupEmailId, req.GroupDesc);
         if (!await _repo.ExistsAsync(id, _tenant.ClientId))
             throw new KeyNotFoundException($"Group {id} not found.");
+        await ValidateEligibleUsersAsync(req.GroupLeader, []);
         await _repo.UpdateInfoAsync(id, req, _tenant.ClientId, _tenant.UserId);
     }
 
@@ -66,7 +68,8 @@ public class GroupService
     {
         if (!await _repo.ExistsAsync(groupId, _tenant.ClientId))
             throw new KeyNotFoundException($"Group {groupId} not found.");
-        await _repo.SyncMembersAsync(groupId, memberIds, _tenant.ClientId);
+        var normalizedIds = await ValidateEligibleUsersAsync(null, memberIds);
+        await _repo.SyncMembersAsync(groupId, normalizedIds, _tenant.ClientId);
     }
 
     // US-006/US-012: Save group-level permissions (BR-011)
@@ -86,6 +89,30 @@ public class GroupService
     {
         var errors = GroupValidator.Validate(groupName, groupLeader, groupEmailId, groupDesc);
         if (errors.Count > 0) throw new ValidationException(errors);
+    }
+
+    private async Task<List<long>> ValidateEligibleUsersAsync(long? groupLeader, List<long>? memberIds)
+    {
+        var suppliedIds = memberIds ?? [];
+        var normalizedIds = suppliedIds
+            .Where(id => id > 0)
+            .Distinct()
+            .ToList();
+        var requestedIds = normalizedIds.ToList();
+        if (groupLeader is > 0) requestedIds.Add(groupLeader.Value);
+
+        var eligibleIds = requestedIds.Count == 0
+            ? []
+            : await _repo.GetActiveUserIdsAsync(_tenant.ClientId, requestedIds);
+        var errors = new List<string>();
+
+        if (groupLeader is > 0 && !eligibleIds.Contains(groupLeader.Value))
+            errors.Add("Selected Group Leader is inactive or outside your organization");
+        if (suppliedIds.Any(id => id <= 0) || normalizedIds.Any(id => !eligibleIds.Contains(id)))
+            errors.Add("One or more selected users are inactive or outside your organization");
+
+        if (errors.Count > 0) throw new ValidationException(errors);
+        return normalizedIds;
     }
 }
 

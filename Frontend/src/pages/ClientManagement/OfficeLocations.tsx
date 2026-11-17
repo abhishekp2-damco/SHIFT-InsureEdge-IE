@@ -59,13 +59,16 @@ function validateOffice(f: OfficeForm): Errors {
   const e: Errors = {};
   if (!f.officeName.trim()) e.officeName = 'Provide Office Name to continue';
   if (!f.officeType) e.officeType = 'Provide Office Type to continue';
-  for (const [k, v] of Object.entries(validateAddress(f.address))) e[`addr.${k}`] = v;
+  for (const [k, v] of Object.entries(validateAddress(f.address, {
+    validateRegionMembership: false,
+    forbidCanadaCounty: false,
+  }))) e[`addr.${k}`] = v;
   Object.assign(e, validateContactList(f.primary, f.secondaries));
   return e;
 }
 
 export const formatAddress = (a: { addressLine1?: string; addressLine2?: string; city?: string; state?: string; zipCode?: string; country?: string }) =>
-  [a.addressLine1, a.addressLine2, a.city, [a.state, a.zipCode].filter(Boolean).join(' '), a.country].filter(Boolean).join(', ');
+  [a.addressLine1, a.addressLine2, a.country, a.state, a.city, a.zipCode].filter(Boolean).join(' ');
 
 // ── Pop-up ─────────────────────────────────────────────────────────────────────
 function OfficeModal({ office, initialMode, onSave, onClose }: {
@@ -170,17 +173,18 @@ const btnSecondary: CSSProperties = {
   border: '1px solid #d8dee6', borderRadius: 3, fontSize: 13, cursor: 'pointer',
 };
 const cardBase: CSSProperties = {
-  border: '1px solid #d8dee6', borderRadius: 6, padding: 14, background: '#fff',
-  minHeight: 210, display: 'flex', flexDirection: 'column', transition: 'border-color 0.15s, box-shadow 0.15s',
+  width: 440, maxWidth: '100%', boxSizing: 'border-box',
+  border: '1px solid #d8dee6', borderRadius: 6, padding: 12, background: '#fff',
+  minHeight: 218, display: 'flex', flexDirection: 'column',
 };
-const cardHover: CSSProperties = { borderColor: '#0B5AA0', boxShadow: '0 2px 8px rgba(11,90,160,0.12)' };
+const cardHover: CSSProperties = { borderColor: '#0B5AA0' };
 
 function IconButton({ label, onClick, danger, children }: { label: string; onClick: () => void; danger?: boolean; children: ReactNode }) {
   const [hover, setHover] = useState(false);
   return (
     <button type="button" title={label} aria-label={label} onClick={onClick}
       onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{ background: hover ? (danger ? '#fee2e2' : '#eff6ff') : 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', color: danger ? '#dc2626' : hover ? '#0B5AA0' : '#6b7280', padding: 6, display: 'flex' }}>
+      style={{ background: hover ? (danger ? '#fee2e2' : '#eff6ff') : 'transparent', border: 'none', borderRadius: 4, cursor: 'pointer', color: hover ? (danger ? '#dc2626' : '#0B5AA0') : '#111827', padding: 5, display: 'flex' }}>
       {children}
     </button>
   );
@@ -192,20 +196,23 @@ function OfficeCard({ office, onView, onEdit, onDelete }: { office: OfficeDto; o
   return (
     <div style={{ ...cardBase, ...(hover ? cardHover : {}) }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       {office.officeType && (
-        <span style={{ alignSelf: 'flex-start', background: '#dbeafe', color: '#1e40af', borderRadius: 10, padding: '2px 10px', fontSize: 11, fontWeight: 700, marginBottom: 8 }}>{office.officeType}</span>
+        <span style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fff', color: '#0B5AA0', border: '1px solid #0B5AA0', borderRadius: 10, padding: '2px 10px', fontSize: 10, lineHeight: 1.1, fontWeight: 500, marginBottom: 8 }}>
+          <span aria-hidden="true" style={{ width: 4, height: 4, borderRadius: '50%', background: '#0B5AA0' }} />
+          {office.officeType}
+        </span>
       )}
-      <div style={{ fontSize: 14, fontWeight: 800, color: '#111827', marginBottom: 10 }}>{office.officeName}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 10 }}>{office.officeName}</div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
-        <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#0B5AA0', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>{initial}</span>
-        <div style={{ minWidth: 0, fontSize: 12, color: '#374151', lineHeight: 1.5 }}>
+        <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#e0f2fe', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{initial}</span>
+        <div style={{ minWidth: 0, fontSize: 11, color: '#374151', lineHeight: 1.45 }}>
           <div style={{ fontWeight: 600, color: '#111827' }}>{office.contactName || '-'}</div>
           <div>{office.contactTitle || '-'}</div>
           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{office.contactEmail || '-'}</div>
         </div>
       </div>
-      <div style={{ fontSize: 12, fontWeight: 800, color: '#111827' }}>Address</div>
-      <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5, flex: 1 }}>{formatAddress(office) || '-'}</div>
-      <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 10, paddingTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+      <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 8, fontSize: 11, fontWeight: 700, color: '#111827' }}>Address</div>
+      <div style={{ fontSize: 11, color: '#111827', lineHeight: 1.45, flex: 1 }}>{formatAddress(office) || '-'}</div>
+      <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 8, paddingTop: 7, display: 'flex', justifyContent: 'center', gap: 18 }}>
         <IconButton label="View" onClick={onView}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
         </IconButton>
@@ -216,17 +223,6 @@ function OfficeCard({ office, onView, onEdit, onDelete }: { office: OfficeDto; o
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" /></svg>
         </IconButton>
       </div>
-    </div>
-  );
-}
-
-function AddLocationCard({ onAdd }: { onAdd: () => void }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div style={{ ...cardBase, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 12, ...(hover ? cardHover : {}) }}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>Add New Location</div>
-      <button type="button" onClick={onAdd} style={btnPrimary}>+ Add Office</button>
     </div>
   );
 }
@@ -245,23 +241,38 @@ export function OfficeLocations({ offices, onSave, onDelete }: {
     .some(v => v?.toLowerCase().includes(q)));
 
   return (
-    <section style={{ border: '1px solid #d8dee6', borderRadius: 4, background: '#fff', padding: 16, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 12 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 800, color: '#111827', margin: 0 }}>Additional Office Locations</h2>
-        <input className="fi" placeholder="Search..." aria-label="Search offices" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220 }} />
+    <section style={{ border: '1px solid #d8dee6', borderRadius: 4, background: '#fff', marginBottom: 16, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 12px 13px', borderBottom: '1px solid #d8dee6' }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#20242a', margin: '0 0 12px' }}>Additional Office Locations</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ width: 233, maxWidth: '100%', height: 28, boxSizing: 'border-box', border: '1px solid #9ea8b5', borderRadius: 3, background: '#f7f8fb', color: '#64748b', display: 'flex', alignItems: 'center', gap: 7, padding: '0 10px' }}>
+            <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+            <input
+              aria-label="Search office locations"
+              placeholder="Search Keyword"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', background: 'transparent', color: '#20242a', fontSize: 11 }}
+            />
+          </label>
+          <button type="button" onClick={() => setModal({ mode: 'edit' })} style={{ ...btnPrimary, height: 28, minWidth: 106, padding: '0 13px', fontSize: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+            <span aria-hidden="true" style={{ fontSize: 17, lineHeight: 1, fontWeight: 300 }}>+</span>
+            Add Office
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14 }}>
-        <AddLocationCard onAdd={() => setModal({ mode: 'edit' })} />
-        {filtered.map(o => (
-          <OfficeCard key={o.id} office={o}
-            onView={() => setModal({ office: o, mode: 'view' })}
-            onEdit={() => setModal({ office: o, mode: 'edit' })}
-            onDelete={() => setDeletingId(o.id!)} />
-        ))}
-      </div>
-      {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '20px 0 4px', color: '#6b7280', fontSize: 13 }}>No Data Available</div>
+      {filtered.length === 0 ? (
+        <div role="status" style={{ minHeight: 46, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#20242a', fontSize: 16, fontWeight: 700 }}>No Data Available</div>
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 14, padding: 12 }}>
+          {filtered.map(o => (
+            <OfficeCard key={o.id} office={o}
+              onView={() => setModal({ office: o, mode: 'view' })}
+              onEdit={() => setModal({ office: o, mode: 'edit' })}
+              onDelete={() => setDeletingId(o.id!)} />
+          ))}
+        </div>
       )}
 
       {modal && <OfficeModal office={modal.office} initialMode={modal.mode} onSave={onSave} onClose={() => setModal(null)} />}

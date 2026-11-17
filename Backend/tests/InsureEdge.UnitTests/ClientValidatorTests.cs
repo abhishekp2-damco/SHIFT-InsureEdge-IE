@@ -126,6 +126,47 @@ public class ClientValidatorTests
         ClientValidator.ValidateAddress(req).Should().Be("Provide Address Line 1 to continue");
     }
 
+    [Theory]
+    [InlineData("United States", "Ontario", "Provide valid State to continue")]
+    [InlineData("Canada", "California", "Provide valid Province to continue")]
+    public void Address_region_must_belong_to_selected_country(string country, string region, string expected)
+    {
+        var req = new SaveAddressRequest("Legal", "1 Main St", null, country, region, "Toronto", null,
+            country == "Canada" ? "K1A 0B1" : "90001", null, null, true);
+        ClientValidator.ValidateAddress(req).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Address_type_is_restricted_to_legal_or_mailing()
+    {
+        var req = new SaveAddressRequest("Other", "1 Main St", null, "United States", "California",
+            "Los Angeles", null, "90001", null, null, true);
+        ClientValidator.ValidateAddress(req).Should().Be("Provide valid Address Type to continue");
+    }
+
+    [Fact]
+    public void Same_as_legal_requires_non_manual_matching_mailing_values()
+    {
+        var legal = new SaveAddressRequest("Legal", "1 Main St", null, "United States", "California",
+            "Los Angeles", null, "90001", null, null, false);
+        var mailing = legal with { AddressType = "Mailing", IsSameAsLegal = true };
+
+        ClientValidator.ValidateAddress(mailing).Should().BeNull();
+        ClientValidator.ValidateSameAsLegal(mailing, legal).Should().BeNull();
+        ClientValidator.ValidateAddress(mailing with { IsManual = true }).Should()
+            .Be("Enter Address Manually must be unchecked when Same as Home Office / Legal Address is selected");
+        ClientValidator.ValidateSameAsLegal(mailing with { City = "San Diego" }, legal).Should()
+            .Be("Mailing Address must match Home Office / Legal Address when Same as Home Office / Legal Address is selected");
+    }
+
+    [Fact]
+    public void Canadian_county_is_removed_by_server_normalization()
+    {
+        var req = new SaveAddressRequest("Mailing", "1 Main St", null, "Canada", "Ontario", "Toronto",
+            "Toronto Division", "K1A 0B1", null, null, false);
+        ClientValidator.NormalizeAddress(req).County.Should().BeNull();
+    }
+
     [Fact]
     public void Contact_requires_name_title_and_email()
     {
@@ -176,6 +217,55 @@ public class ClientValidatorTests
     public void Client_info_seed_values_are_valid()
     {
         ClientValidator.ValidateInfo(ValidInfo()).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(null, "Provide NAIC Code to continue")]
+    [InlineData("", "Provide NAIC Code to continue")]
+    [InlineData("1234", "Provide valid NAIC Code to continue")]
+    [InlineData("123456", "Provide valid NAIC Code to continue")]
+    [InlineData("12A45", "Provide valid NAIC Code to continue")]
+    public void Client_info_requires_a_five_digit_naic_code(string? naicCode, string expected)
+    {
+        ClientValidator.ValidateInfo(ValidInfo() with { NaicCode = naicCode }).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Client_logo_reports_format_and_size_failures_separately()
+    {
+        ClientValidator.ValidateInfo(ValidInfo() with
+        {
+            LogoBase64 = Convert.ToBase64String(new byte[10 * 1024]),
+            LogoContentType = "application/pdf"
+        }).Should().Be("Please upload file based on the criteria listed");
+
+        ClientValidator.ValidateInfo(ValidInfo() with
+        {
+            LogoBase64 = Convert.ToBase64String(new byte[(10 * 1024) - 1]),
+            LogoContentType = "image/png"
+        }).Should().Be("File size is too small");
+
+        ClientValidator.ValidateInfo(ValidInfo() with
+        {
+            LogoBase64 = Convert.ToBase64String(new byte[(10 * 1024 * 1024) + 1]),
+            LogoContentType = "image/jpeg"
+        }).Should().Be("File size is too large");
+
+        ClientValidator.ValidateInfo(ValidInfo() with
+        {
+            LogoBase64 = Convert.ToBase64String(new byte[10 * 1024]),
+            LogoContentType = "image/gif"
+        }).Should().BeNull();
+    }
+
+    [Fact]
+    public void Client_company_logo_reports_large_file_error()
+    {
+        ClientValidator.ValidateCompany(ValidCompany() with
+        {
+            LogoBase64 = Convert.ToBase64String(new byte[(10 * 1024 * 1024) + 1]),
+            LogoContentType = "image/png"
+        }).Should().Be("File size is too large");
     }
 
     [Fact]

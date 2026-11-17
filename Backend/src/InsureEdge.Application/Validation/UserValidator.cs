@@ -13,6 +13,9 @@ public static class UserValidator
     public const string CityInvalid = "Provide valid City to continue";
     public const string CountyInvalid = "Provide valid County to continue";
     public const string TelephoneSameAsAlt = "Telephone Number should not be same as Alternative Telephone Number";
+    public const string AltTelephoneSameAsTelephone = "Alternative Telephone Number should not be same as Telephone Number";
+
+    public static string[] PhonePairErrors() => [TelephoneSameAsAlt, AltTelephoneSameAsTelephone];
 
     public static List<string> Validate(string? addressLine1, string? addressLine2, string? city, string? county,
         string? telephone, string? altTelephone)

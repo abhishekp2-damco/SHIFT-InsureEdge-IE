@@ -4,6 +4,7 @@ import { usersApi, referenceApi } from '../../api/users'
 import type { UserDetail, CountryRow, StateRow, GroupRow, ManagerRow, OptionRow, ModuleRow, PermissionInput } from '../../types/User'
 import SearchableSelect from '../../components/ui/SearchableSelect'
 import PermissionsGrid from '../UserForm/PermissionsGrid'
+import * as fv from '../../utils/fieldValidation'
 
 const GENDERS = ['Male', 'Female', 'Non-Binary', 'Prefer not to say']
 const DEPARTMENTS = [
@@ -76,6 +77,7 @@ function Label({ children, required }: { children: React.ReactNode; required?: b
 }
 
 function Field({ label, value }: { label: string; value?: string | null }) {
+  if (/telephone|phone/i.test(label)) value = fv.formatPhoneView(value);
   return (
     <div>
       <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 3, fontWeight: 500 }}>{label}</div>
@@ -159,6 +161,7 @@ export default function ViewUser() {
   const [edit, setEdit] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
 
   const [countries, setCountries] = useState<CountryRow[]>([])
   const [states, setStates] = useState<StateRow[]>([])
@@ -223,9 +226,10 @@ export default function ViewUser() {
     })
     setEditSection(section)
     setSaveError('')
+    setEditErrors({})
   }
 
-  function cancelEdit() { setEditSection(null); setEdit(null); setSaveError('') }
+  function cancelEdit() { setEditSection(null); setEdit(null); setSaveError(''); setEditErrors({}) }
 
   function setF<K extends keyof EditState>(key: K, value: EditState[K]) {
     setEdit(f => f ? { ...f, [key]: value } : f)
@@ -233,6 +237,10 @@ export default function ViewUser() {
 
   async function saveSection() {
     if (!edit || !user) return
+    const validationErrors: Record<string, string> = {}
+    fv.checkPhonesDiffer(validationErrors, 'telephone', 'altTelephone', edit.telephone, edit.altTelephone)
+    setEditErrors(validationErrors)
+    if (Object.keys(validationErrors).length > 0) return
     setSaving(true); setSaveError('')
     try {
       await usersApi.update(Number(id), {
@@ -520,8 +528,8 @@ export default function ViewUser() {
               {isAddressEdit && edit ? (
                 <div style={{ padding: 20 }}>
                   <div style={row2}>
-                    <div><Label required>Address Line 1</Label><input value={edit.addressLine1} onChange={e => setF('addressLine1', e.target.value)} style={inputStyle} /></div>
-                    <div><Label>Address Line 2</Label><input value={edit.addressLine2} onChange={e => setF('addressLine2', e.target.value)} style={inputStyle} /></div>
+                    <div><Label required>Address Line 1</Label><input value={edit.addressLine1} onChange={e => setF('addressLine1', e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} style={inputStyle} /></div>
+                    <div><Label>Address Line 2</Label><input value={edit.addressLine2} onChange={e => setF('addressLine2', e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} style={inputStyle} /></div>
                   </div>
                   <div style={row3}>
                     <div><Label required>Country</Label>
@@ -530,7 +538,7 @@ export default function ViewUser() {
                     <div><Label required>State</Label>
                       <SearchableSelect options={stateOpts} value={edit.state} onChange={v => setF('state', v)} placeholder="Select..." disabled={!edit.country} />
                     </div>
-                    <div><Label required>City</Label><input value={edit.city} onChange={e => setF('city', e.target.value)} style={inputStyle} /></div>
+                    <div><Label required>City</Label><input value={edit.city} onChange={e => setF('city', e.target.value)} maxLength={fv.CITY_MAX} style={inputStyle} /></div>
                   </div>
                   <div style={row3}>
                     <div><Label required>Zip Code</Label><input value={edit.zipCode} onChange={e => setF('zipCode', e.target.value)} style={inputStyle} /></div>
@@ -595,8 +603,9 @@ export default function ViewUser() {
                           <span style={{ fontSize: 16, lineHeight: 1 }}>🇺🇸</span><span style={{ color: '#9ca3af', fontSize: 11 }}>·</span>
                         </div>
                         <input value={edit.telephone} onChange={e => setF('telephone', formatPhone(e.target.value))} placeholder="(###) ###-####"
-                          style={{ ...inputStyle, borderRadius: '0 4px 4px 0', flex: 1, width: 'auto' }} />
+                          style={{ ...inputStyle, borderColor: editErrors.telephone ? '#c62828' : '#d1d5db', borderRadius: '0 4px 4px 0', flex: 1, width: 'auto' }} />
                       </div>
+                      {editErrors.telephone && <div className="error-msg">{editErrors.telephone}</div>}
                     </div>
                     <div><Label>Extension</Label><input value={edit.extension} onChange={e => setF('extension', e.target.value)} style={inputStyle} /></div>
                   </div>
@@ -608,8 +617,9 @@ export default function ViewUser() {
                           <span style={{ fontSize: 16, lineHeight: 1 }}>🇺🇸</span><span style={{ color: '#9ca3af', fontSize: 11 }}>·</span>
                         </div>
                         <input value={edit.altTelephone} onChange={e => setF('altTelephone', formatPhone(e.target.value))} placeholder="(###) ###-####"
-                          style={{ ...inputStyle, borderRadius: '0 4px 4px 0', flex: 1, width: 'auto' }} />
+                          style={{ ...inputStyle, borderColor: editErrors.altTelephone ? '#c62828' : '#d1d5db', borderRadius: '0 4px 4px 0', flex: 1, width: 'auto' }} />
                       </div>
+                      {editErrors.altTelephone && <div className="error-msg">{editErrors.altTelephone}</div>}
                     </div>
                     <div><Label required>Email ID</Label><input type="email" value={edit.email} onChange={e => setF('email', e.target.value)} style={inputStyle} /></div>
                   </div>

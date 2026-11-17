@@ -22,6 +22,8 @@ public class GroupServiceTests
     {
         _tenant.Setup(t => t.ClientId).Returns(1);
         _tenant.Setup(t => t.UserId).Returns(100);
+        _repo.Setup(r => r.GetActiveUserIdsAsync(It.IsAny<long>(), It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync((long _, IReadOnlyCollection<long> ids) => ids.ToHashSet());
         _svc = new GroupService(_repo.Object, _tenant.Object);
     }
 
@@ -155,5 +157,61 @@ public class GroupServiceTests
         _repo.Setup(r => r.ExistsAsync(999, 1)).ReturnsAsync(false);
         var act = async () => await _svc.SyncMembersAsync(999, new List<long> { 1, 2 });
         await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateGroup_DeduplicatesMembersBeforePersistence()
+    {
+        _repo.Setup(r => r.CreateAsync(It.IsAny<Group>(), It.IsAny<List<long>>(), It.IsAny<List<ScreenPermissionSaveDto>>()))
+            .ReturnsAsync((Group group, List<long> _, List<ScreenPermissionSaveDto> _) => group);
+        var req = new CreateGroupRequest("Operations", 100, null, null, false, false, [7, 7, 8], []);
+
+        await _svc.CreateGroupAsync(req);
+
+        _repo.Verify(r => r.CreateAsync(
+            It.IsAny<Group>(), It.Is<List<long>>(ids => ids.SequenceEqual(new long[] { 7, 8 })),
+            It.IsAny<List<ScreenPermissionSaveDto>>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SyncMembers_RejectsInactiveOrCrossTenantUsers()
+    {
+        _repo.Setup(r => r.ExistsAsync(5, 1)).ReturnsAsync(true);
+        _repo.Setup(r => r.GetActiveUserIdsAsync(1, It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new HashSet<long> { 7 });
+
+        var act = async () => await _svc.SyncMembersAsync(5, [7, 99]);
+
+        await act.Should().ThrowAsync<ValidationException>()
+            .Where(error => error.Errors.Contains("One or more selected users are inactive or outside your organization"));
+        _repo.Verify(r => r.SyncMembersAsync(It.IsAny<long>(), It.IsAny<List<long>>(), It.IsAny<long>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SyncMembers_UsesClaimTenantForClientAndProducerPersonas(bool producerPersona)
+    {
+        _tenant.Setup(t => t.ProducerId).Returns(producerPersona ? 45 : null);
+        _repo.Setup(r => r.ExistsAsync(5, 1)).ReturnsAsync(true);
+
+        await _svc.SyncMembersAsync(5, [7]);
+
+        _repo.Verify(r => r.GetActiveUserIdsAsync(
+            1, It.Is<IReadOnlyCollection<long>>(ids => ids.SequenceEqual(new long[] { 7 }))), Times.Once);
+        _repo.Verify(r => r.SyncMembersAsync(5, It.Is<List<long>>(ids => ids.SequenceEqual(new long[] { 7 })), 1), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateGroup_RejectsLeaderOutsideActiveTenantUsers()
+    {
+        _repo.Setup(r => r.GetActiveUserIdsAsync(1, It.IsAny<IReadOnlyCollection<long>>()))
+            .ReturnsAsync(new HashSet<long>());
+        var req = new CreateGroupRequest("Operations", 500, null, null, false, false, [], []);
+
+        var act = async () => await _svc.CreateGroupAsync(req);
+
+        await act.Should().ThrowAsync<ValidationException>()
+            .Where(error => error.Errors.Contains("Selected Group Leader is inactive or outside your organization"));
     }
 }

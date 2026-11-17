@@ -41,12 +41,12 @@ public record CreatePayeeRequest(
 public record CreateAddressRequest(
     string? GoogleAddress,
     bool    IsManual,
-    string? AddressLine1,
-    string? AddressLine2,
+    [property: System.ComponentModel.DataAnnotations.StringLength(500)] string? AddressLine1,
+    [property: System.ComponentModel.DataAnnotations.StringLength(500)] string? AddressLine2,
     string? Country,
     string? State,
-    string? City,
-    string? County,
+    [property: System.ComponentModel.DataAnnotations.StringLength(50)] string? City,
+    [property: System.ComponentModel.DataAnnotations.StringLength(50)] string? County,
     string? ZipCode,
     string? Latitude,
     string? Longitude

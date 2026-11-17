@@ -8,6 +8,8 @@ import { useColumnOrder } from '../../hooks/useColumnOrder';
 import {
   ColumnFilterPopup, applyColumnFilters, distinctValues, hasActiveFilters, type ColumnFilters,
 } from '../../components/grid/ColumnFilter';
+import { useSessionState } from '../../hooks/useSessionState';
+import { formatPhoneView } from '../../utils/fieldValidation';
 
 const PAGE_SIZE = 10;
 // While a column filter is in use, every user is loaded so the filter covers all pages (QA UGM-05).
@@ -43,7 +45,7 @@ function getCellValue(u: UserListItem, key: ColKey): string {
     case 'userName': return [u.firstName, u.lastName].filter(Boolean).join(' ') || '';
     case 'userId':   return u.userCode ?? '';
     case 'groups':   return u.groups.map(g => g.groupName).join(', ');
-    case 'contact':  return [u.telephoneNumberCc, u.telephoneNumber].filter(Boolean).join(' ');
+    case 'contact':  return formatPhoneView(u.telephoneNumber);
     case 'email':    return u.email ?? '';
     case 'office':   return u.officeLocation ?? '';
     case 'address':  return [u.addressLine1, u.city].filter(Boolean).join(', ');
@@ -141,7 +143,7 @@ export default function UserManagementPage() {
   // Column filters (QA UGM-05). The server pages the list, so filtering only the current page
   // missed matches on other pages; while a filter is open or applied, load every row instead
   // and page the filtered result here.
-  const [filters, setFilters] = useState<ColumnFilters<ColKey>>({});
+  const [filters, setFilters] = useSessionState<ColumnFilters<ColKey>>('grid-filters:users', {});
   const [openFilterCol, setOpenFilterCol] = useState<ColKey | null>(null);
   const [filterAnchorRects, setFilterAnchorRects] = useState<Partial<Record<ColKey, DOMRect>>>({});
   const [everyRow, setEveryRow] = useState<UserListItem[] | null>(null);
@@ -353,7 +355,7 @@ export default function UserManagementPage() {
                 </td></tr>
               ) : filtered.map((u, idx) => {
                 const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ') || '—';
-                const phone = [u.telephoneNumberCc, u.telephoneNumber].filter(Boolean).join(' ') || '—';
+                const phone = formatPhoneView(u.telephoneNumber) || '—';
                 const groupStr = u.groups.map(g => g.groupName).join(', ') || '—';
                 const addr = [u.addressLine1, u.city].filter(Boolean).join(', ') || '—';
                 const isActive = (u.status || '').toLowerCase() !== 'inactive';

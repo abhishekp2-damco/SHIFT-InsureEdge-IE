@@ -98,6 +98,7 @@ public class GroupsController : ControllerBase
             return NoContent();
         }
         catch (KeyNotFoundException) { return NotFound(); }
+        catch (ValidationException ex) { return BadRequest(new { errors = ex.Errors }); }
     }
 
     // US-006/US-012: Save permissions (BR-011)

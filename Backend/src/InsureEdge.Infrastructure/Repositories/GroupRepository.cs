@@ -127,9 +127,10 @@ public class GroupRepository : IGroupRepository
         _db.Groups.Add(group);
         await _db.SaveChangesAsync();
 
-        if (memberIds.Any())
+        var distinctMemberIds = memberIds.Distinct().ToList();
+        if (distinctMemberIds.Any())
         {
-            var gu = memberIds.Select(uid => new GroupUser { GroupId = group.Id, UserId = uid, ClientId = group.ClientId }).ToList();
+            var gu = distinctMemberIds.Select(uid => new GroupUser { GroupId = group.Id, UserId = uid, ClientId = group.ClientId }).ToList();
             _db.GroupUsers.AddRange(gu);
         }
 
@@ -152,6 +153,17 @@ public class GroupRepository : IGroupRepository
         return group;
     }
 
+    public async Task<HashSet<long>> GetActiveUserIdsAsync(long clientId, IReadOnlyCollection<long> userIds)
+    {
+        if (userIds.Count == 0) return [];
+        var distinctIds = userIds.Distinct().ToList();
+        var ids = await _db.Users
+            .Where(user => user.ClientId == clientId && user.IsActive && distinctIds.Contains(user.Id))
+            .Select(user => user.Id)
+            .ToListAsync();
+        return ids.ToHashSet();
+    }
+
     public async Task UpdateInfoAsync(long id, UpdateGroupInfoRequest req, long clientId, long updatedBy)
     {
         var g = await _db.Groups.FirstOrDefaultAsync(x => x.Id == id && x.ClientId == clientId)
@@ -165,10 +177,11 @@ public class GroupRepository : IGroupRepository
     public async Task SyncMembersAsync(long groupId, List<long> memberIds, long clientId)
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
-        var existing = await _db.GroupUsers.Where(x => x.GroupId == groupId).ToListAsync();
+        var existing = await _db.GroupUsers.Where(x => x.GroupId == groupId && x.ClientId == clientId).ToListAsync();
         _db.GroupUsers.RemoveRange(existing); // synchronous privilege revocation
-        if (memberIds.Any())
-            _db.GroupUsers.AddRange(memberIds.Select(uid => new GroupUser { GroupId = groupId, UserId = uid, ClientId = clientId }));
+        var distinctMemberIds = memberIds.Distinct().ToList();
+        if (distinctMemberIds.Any())
+            _db.GroupUsers.AddRange(distinctMemberIds.Select(uid => new GroupUser { GroupId = groupId, UserId = uid, ClientId = clientId }));
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
     }

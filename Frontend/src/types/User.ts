@@ -4,6 +4,7 @@ export interface UserSelectDto {
   fullName: string;
   email: string;
   initials: string;
+  createdOn?: string;
 }
 
 export interface GroupRef {

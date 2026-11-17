@@ -6,6 +6,7 @@
 using InsureEdge.API.Filters;
 using InsureEdge.Application.DTOs.Claim;
 using InsureEdge.Application.Services;
+using InsureEdge.Application.Validation;
 using InsureEdge.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -118,6 +119,9 @@ public class ClaimsController : ControllerBase
     [Permission("FNOLREGSCREEN", PermissionType.Add)]
     public async Task<IActionResult> CreateOrUpdate([FromBody] CreateOrUpdateClaimRequest req)
     {
+        if (req.Claimants.Any(claimant => UserValidator.PhonesMatch(claimant.Telephone, claimant.AlternateTelephone)))
+            return BadRequest(new { errors = UserValidator.PhonePairErrors() });
+
         try
         {
             var id = await _claims.CreateOrUpdateAsync(req);
@@ -235,7 +239,11 @@ public class ClaimsController : ControllerBase
 
     [HttpPost("{id:long}/temp-reports")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Add)]
-    public async Task<IActionResult> UpsertTempReport(long id, [FromBody] UpsertTempClaimReportRequest req) => Ok(await _claims.UpsertTempClaimReportAsync(id, req));
+    public async Task<IActionResult> UpsertTempReport(long id, [FromBody] UpsertTempClaimReportRequest req)
+    {
+        if (UserValidator.PhonesMatch(req.TelephoneNumber, req.AlternateTelephoneNumber)) return BadRequest(new { errors = UserValidator.PhonePairErrors() });
+        return Ok(await _claims.UpsertTempClaimReportAsync(id, req));
+    }
 
     [HttpDelete("{id:long}/temp-reports/{rowId:long}")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Edit)]
@@ -251,7 +259,11 @@ public class ClaimsController : ControllerBase
 
     [HttpPost("{id:long}/temp-parties")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Add)]
-    public async Task<IActionResult> UpsertTempParty(long id, [FromBody] UpsertTempClaimPartyRequest req) => Ok(await _claims.UpsertTempClaimPartyAsync(id, req));
+    public async Task<IActionResult> UpsertTempParty(long id, [FromBody] UpsertTempClaimPartyRequest req)
+    {
+        if (UserValidator.PhonesMatch(req.TelephoneNumber, req.AlternateTelephoneNumber)) return BadRequest(new { errors = UserValidator.PhonePairErrors() });
+        return Ok(await _claims.UpsertTempClaimPartyAsync(id, req));
+    }
 
     [HttpDelete("{id:long}/temp-parties/{rowId:long}")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Edit)]
@@ -267,7 +279,11 @@ public class ClaimsController : ControllerBase
 
     [HttpPost("{id:long}/temp-witnesses")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Add)]
-    public async Task<IActionResult> UpsertTempWitness(long id, [FromBody] UpsertTempClaimWitnessRequest req) => Ok(await _claims.UpsertTempClaimWitnessAsync(id, req));
+    public async Task<IActionResult> UpsertTempWitness(long id, [FromBody] UpsertTempClaimWitnessRequest req)
+    {
+        if (UserValidator.PhonesMatch(req.TelephoneNumber, req.AlternateTelephoneNumber)) return BadRequest(new { errors = UserValidator.PhonePairErrors() });
+        return Ok(await _claims.UpsertTempClaimWitnessAsync(id, req));
+    }
 
     [HttpDelete("{id:long}/temp-witnesses/{rowId:long}")]
     [Permission("CLAIMENQUIRYSCREEN", PermissionType.Edit)]

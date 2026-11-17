@@ -1,11 +1,12 @@
 // AI_GENERATED | HUMAN_VALIDATION_REQUIRED
-// Submission (quote wizard draft) CRUD — screen: NBQUOTESSCREEN
+// Submission (quote wizard draft) CRUD â€” screen: NBQUOTESSCREEN
 // Ported from server.js POST/GET/PUT/DELETE /api/submissions/:id and
 // GET /api/submissions/:id/commission.
 using InsureEdge.API.Filters;
 using InsureEdge.Application.DTOs.QuotesPolicies;
 using InsureEdge.Application.Interfaces;
 using InsureEdge.Application.Services;
+using InsureEdge.Application.Validation;
 using InsureEdge.Domain.Enums;
 using InsureEdge.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
@@ -36,6 +37,9 @@ public class SubmissionsController : ControllerBase
     {
         if (MissingPrimaryState(req.DataJson))
             return BadRequest(new { error = "Provide Primary State to continue" });
+
+        var addressError = AddressLengthValidator.ValidateJson(req.DataJson);
+        if (addressError != null) return BadRequest(new { error = addressError });
         try
         {
             return Ok(await _submissions.CreateAsync(req));
@@ -105,7 +109,7 @@ public class SubmissionsController : ControllerBase
                             .AsNoTracking()
                             .FirstOrDefaultAsync(s => s.ClientId == draftPolicy.ClientId && s.Id == priorPolicy.QuoteNumber);
 
-                        System.Console.WriteLine($"[GetById] Prior submission lookup: ClientId={draftPolicy.ClientId}, QuoteNumber={priorPolicy.QuoteNumber} → {(priorSubmission != null ? "FOUND" : "NOT FOUND")}");
+                        System.Console.WriteLine($"[GetById] Prior submission lookup: ClientId={draftPolicy.ClientId}, QuoteNumber={priorPolicy.QuoteNumber} â†’ {(priorSubmission != null ? "FOUND" : "NOT FOUND")}");
 
                         if (priorSubmission != null)
                         {
@@ -147,6 +151,8 @@ public class SubmissionsController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Upsert(string id, [FromBody] UpdateSubmissionRequest req)
     {
+        var addressError = AddressLengthValidator.ValidateJson(req.DataJson);
+        if (addressError != null) return BadRequest(new { error = addressError });
         try
         {
             return Ok(await _submissions.UpsertAsync(id, req));
@@ -168,7 +174,7 @@ public class SubmissionsController : ControllerBase
         return deleted ? NoContent() : NotFound(new { error = "Submission not found." });
     }
 
-    // ─── Finalize Quote: payment plan (OutSystems SaveOnClick / GetPolicyDetails) ───
+    // â”€â”€â”€ Finalize Quote: payment plan (OutSystems SaveOnClick / GetPolicyDetails) â”€â”€â”€
 
     [HttpGet("{id}/payment-plan")]
     public async Task<IActionResult> GetPaymentPlan(string id)
@@ -201,7 +207,7 @@ public class SubmissionsController : ControllerBase
         }
     }
 
-    // ─── Bind (BindOnClick → UpdatePolicyStatus_BL) ──────────────────────────
+    // â”€â”€â”€ Bind (BindOnClick â†’ UpdatePolicyStatus_BL) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/bind")]
     public async Task<IActionResult> BindPolicy(string id)
@@ -225,8 +231,8 @@ public class SubmissionsController : ControllerBase
         }
     }
 
-    // ─── Document Generation (PRD: DownloadQuoteOnClick → GenerationDocuments_
-    // QuoteProposalPackage → GetandDownloadDocument, Plumsail-backed) ──────────
+    // â”€â”€â”€ Document Generation (PRD: DownloadQuoteOnClick â†’ GenerationDocuments_
+    // QuoteProposalPackage â†’ GetandDownloadDocument, Plumsail-backed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/documents/generate-quote-package")]
     public async Task<IActionResult> GenerateQuotePackage(string id,
@@ -252,7 +258,7 @@ public class SubmissionsController : ControllerBase
         return File(file.Value.Bytes, file.Value.ContentType, file.Value.FileName);
     }
 
-    // ─── Client Documents tab (user uploads) ───────────────────────────────────
+    // â”€â”€â”€ Client Documents tab (user uploads) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpGet("{id}/documents")]
     public async Task<IActionResult> ListClientDocuments(string id,
@@ -279,7 +285,7 @@ public class SubmissionsController : ControllerBase
         }
     }
 
-    // ─── Share Quote (Finalize Quote → Document → Share Quote) ────────────────
+    // â”€â”€â”€ Share Quote (Finalize Quote â†’ Document â†’ Share Quote) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/share-quote")]
     public async Task<IActionResult> ShareQuote(string id, [FromBody] ShareQuoteRequest req,
@@ -301,7 +307,7 @@ public class SubmissionsController : ControllerBase
         }
     }
 
-    // ─── Send Email (Email Compose Modal) ────────────────────────────────────
+    // â”€â”€â”€ Send Email (Email Compose Modal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/send-email")]
     public async Task<IActionResult> SendEmail(string id, [FromBody] SendEmailRequest req,
@@ -394,7 +400,7 @@ public class SubmissionsController : ControllerBase
         }
     }
 
-    // ─── Issue Policy (IssueOnClick → IssuePolicyHB_BL) ──────────────────────
+    // â”€â”€â”€ Issue Policy (IssueOnClick â†’ IssuePolicyHB_BL) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/issue")]
     public async Task<IActionResult> IssuePolicy(string id)
@@ -414,12 +420,12 @@ public class SubmissionsController : ControllerBase
         }
         catch (Exception ex)
         {
-            // AllExceptions handler: LogMessage → IsSuccess = false.
+            // AllExceptions handler: LogMessage â†’ IsSuccess = false.
             return StatusCode(500, new { error = ex.Message });
         }
     }
 
-    // ─── Issue Endorsement (IssueEndorsementOnClick) ─────────────────────────
+    // â”€â”€â”€ Issue Endorsement (IssueEndorsementOnClick) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     [HttpPost("{id}/issue-endorsement")]
     public async Task<IActionResult> IssueEndorsement(string id)

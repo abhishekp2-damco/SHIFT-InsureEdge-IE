@@ -9,6 +9,7 @@ import {
 } from './GridHelpers';
 import { quotesPoliciesApi } from '../../api/quotesPolicies';
 import type { RenewalListItemDto, RenewalsKpiDto } from '../../types/Policy';
+import { useSessionState } from '../../hooks/useSessionState';
 
 type Renewal = RenewalListItemDto;
 type Kpis = RenewalsKpiDto;
@@ -67,7 +68,7 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
   const [kpis, setKpis]         = useState<Kpis | null>(null);
   const [search, setSearch]     = useState('');
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
-  const [filters, setFilters]   = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>('grid-filters:quotes:renewals', {});
   const [sort, setSort]         = useState<SortState | null>(null);
   const [page, setPage]         = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -272,7 +273,7 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
           </table>
         </div>
 
-        <div className="table-footer">
+        {showPagination(sorted.length) && <div className="table-footer">
           <span>
             Showing&nbsp;
             <select className="page-size-select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
@@ -280,13 +281,12 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
             </select>
             &nbsp;records · {sorted.length.toLocaleString()} results
           </span>
-          {/* QP-05: pagination only with 10 or more records. */}
-          <div className="pagination" style={showPagination(sorted.length) ? undefined : { display: 'none' }}>
+          <div className="pagination">
             <button className="page-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>&#8249;</button>
             {renderPages()}
             <button className="page-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>&#8250;</button>
           </div>
-        </div>
+        </div>}
       </div>
 
       {filterPopup && (

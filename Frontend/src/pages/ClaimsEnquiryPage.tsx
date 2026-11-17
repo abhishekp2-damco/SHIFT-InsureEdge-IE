@@ -5,6 +5,7 @@ import { claimsApi } from '../api/claims';
 import type { ClaimEnquiryDto, AssignableUserDto } from '../types/Claim';
 import { usePermissions } from '../contexts/PermissionContext';
 import PaginationBar from '../components/PaginationBar';
+import { useSessionState } from '../hooks/useSessionState';
 
 const DEFAULT_PAGE_SIZE = 10;
 const EXPORT_FORMATS = ['CSV', 'PDF', 'XLSX', 'TXT'];
@@ -125,7 +126,7 @@ function ColumnFilterPopup({ col, allRows, valueFilter, condFilter, onApplyValue
   onClose: () => void;
   anchorRect: DOMRect;
 }) {
-  const [tab, setTab] = useState<'value' | 'condition'>('value');
+  const [tab, setTab] = useState<'value' | 'condition'>(condFilter ? 'condition' : 'value');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>(valueFilter);
   const [condOp, setCondOp] = useState(condFilter?.op ?? 'Contains');
@@ -314,8 +315,8 @@ export default function ClaimsEnquiryPage() {
   const [openFilterCol, setOpenFilterCol] = useState<ColKey | null>(null);
   const [filterAnchorRects, setFilterAnchorRects] = useState<Partial<Record<ColKey, DOMRect>>>({});
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(ALL_COLS.map(col => col.key)));
-  const [valueFilters, setValueFilters] = useState<ValueFilters>({});
-  const [condFilters, setCondFilters] = useState<CondFilters>({});
+  const [valueFilters, setValueFilters] = useSessionState<ValueFilters>('grid-filters:claims-enquiry:values', {});
+  const [condFilters, setCondFilters] = useSessionState<CondFilters>('grid-filters:claims-enquiry:conditions', {});
 
   useEffect(() => {
     const timer = setTimeout(() => { setSearch(searchInput); setPage(1); }, 300);

@@ -5230,8 +5230,8 @@ span.ap-th-lbl { cursor: default; }
   padding: 4px 14px 8px;
   border-bottom: 1px solid #f3f4f6;
   margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .qp-scope .col-panel-item {
@@ -5244,6 +5244,8 @@ span.ap-th-lbl { cursor: default; }
   cursor: pointer;
   transition: background 0.1s;
 }
+
+.qp-scope .col-panel-item span { text-transform: none; }
 
 .qp-scope .col-panel-item:hover { background: #f9fafb; }
 
@@ -6635,22 +6637,22 @@ span.ap-th-lbl { cursor: default; }
 }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(1),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(1) { width: 6%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(1) { width: 15%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(2),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(2) { width: 10%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(2) { width: 12%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(3),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(3) { width: 10%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(3) { width: 27%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(4),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(4) { width: 50%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(4) { width: 16%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(5),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(5) { width: 12%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(5) { width: 20%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table th:nth-child(6),
-.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(6) { width: 12%; }
+.qp-scope .risk-info-screen .risk-info-mortgage-table td:nth-child(6) { width: 10%; }
 
 .qp-scope .risk-info-screen .risk-info-mortgage-table .mortgage-address-cell {
   overflow: hidden;

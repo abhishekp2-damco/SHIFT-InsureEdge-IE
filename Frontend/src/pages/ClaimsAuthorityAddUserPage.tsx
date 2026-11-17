@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
 import type { ClaimAuthorityUserSelectionDto } from '../types/Claim';
+import { useSessionState } from '../hooks/useSessionState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -191,7 +192,7 @@ export default function ClaimsAuthorityAddUserPage() {
   const [colPanelRect, setColPanelRect] = useState<DOMRect | null>(null);
   const [activeFilter, setActiveFilter] = useState<ColKey | null>(null);
   const [filterAnchorRect, setFilterAnchorRect] = useState<DOMRect | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnFilters, setColumnFilters] = useSessionState<Record<string, string[]>>('grid-filters:claims-authority:add-user', {});
   const [sortKey, setSortKey] = useState<ColKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
 

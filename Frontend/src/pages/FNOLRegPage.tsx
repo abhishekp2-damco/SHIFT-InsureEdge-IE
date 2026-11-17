@@ -6,6 +6,8 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
+import { useSessionState } from '../hooks/useSessionState';
+import { formatPhoneView } from '../utils/fieldValidation';
 import type {
   PolicySearchDto,
   ClaimCoverageSaveDto,
@@ -18,6 +20,7 @@ import type {
 } from '../types/Claim';
 import { usePermissions } from '../contexts/PermissionContext';
 import PaginationBar from '../components/PaginationBar';
+import * as fv from '../utils/fieldValidation';
 
 // ─── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -150,6 +153,7 @@ function Step2Accordion({ title, children, defaultOpen = false }: { title: strin
 // ─── Step 2 detail field (label above, value below) ───────────────────────────
 
 function DetailField({ label, value }: { label: string; value?: string | null }) {
+  if (/telephone|phone/i.test(label)) value = formatPhoneView(value);
   return (
     <div style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
@@ -369,12 +373,12 @@ function Step1PolicySearch({ onNext, onCancel }: Step1Props) {
   const modifyBtnRef = useRef<HTMLButtonElement>(null);
 
   // Main table column filters
-  const [colFilters, setColFilters] = useState<Partial<Record<PolicyColKey, PolicyColFilter>>>({});
+  const [colFilters, setColFilters] = useSessionState<Partial<Record<PolicyColKey, PolicyColFilter>>>('grid-filters:fnol:policy-search', {});
   const [filterPopup, setFilterPopup] = useState<{ col: { key: string }; anchor: DOMRect } | null>(null);
 
   // Modal table filters (FNOL In Progress + Existing Claims)
-  const [inProgressFilters, setInProgressFilters] = useState<Record<string, PolicyColFilter>>({});
-  const [existingFilters, setExistingFilters]     = useState<Record<string, PolicyColFilter>>({});
+  const [inProgressFilters, setInProgressFilters] = useSessionState<Record<string, PolicyColFilter>>('grid-filters:fnol:in-progress', {});
+  const [existingFilters, setExistingFilters] = useSessionState<Record<string, PolicyColFilter>>('grid-filters:fnol:existing', {});
   const [modalFilterPopup, setModalFilterPopup]   = useState<{ tableId: 'ip' | 'ex'; col: { key: string }; anchor: DOMRect } | null>(null);
 
   useEffect(() => {
@@ -986,8 +990,8 @@ function Step2PolicyInformation({ policyId, refData, form, onChange, onNext, onP
                     <td style={{ padding: '9px 10px', textAlign: 'center', color: '#6b7280' }}>≡</td>
                     <td style={{ padding: '9px 10px' }}>{[row.firstName, row.middleName, row.lastName].filter(Boolean).join(' ') || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.relationship || '-'}</td>
-                    <td style={{ padding: '9px 10px' }}>{row.telephoneNumber || '-'}</td>
-                    <td style={{ padding: '9px 10px' }}>{row.alternateTelephoneNumber || '-'}</td>
+                    <td style={{ padding: '9px 10px' }}>{formatPhoneView(row.telephoneNumber) || '-'}</td>
+                    <td style={{ padding: '9px 10px' }}>{formatPhoneView(row.alternateTelephoneNumber) || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.email || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.insuredType || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.dbaName || '-'}</td>
@@ -1025,9 +1029,9 @@ function Step2PolicyInformation({ policyId, refData, form, onChange, onNext, onP
                     <td style={{ padding: '9px 10px', textAlign: 'center', color: '#6b7280' }}>≡</td>
                     <td style={{ padding: '9px 10px' }}>{row.organisationName || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.organisationType || '-'}</td>
-                    <td style={{ padding: '9px 10px' }}>{row.telephoneNumber || '-'}</td>
+                    <td style={{ padding: '9px 10px' }}>{formatPhoneView(row.telephoneNumber) || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.extension ?? '-'}</td>
-                    <td style={{ padding: '9px 10px' }}>{row.alternateTelephoneNumber || '-'}</td>
+                    <td style={{ padding: '9px 10px' }}>{formatPhoneView(row.alternateTelephoneNumber) || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{row.email || '-'}</td>
                     <td style={{ padding: '9px 10px' }}>{[row.firstName, row.middleName, row.lastName].filter(Boolean).join(' ') || '-'}</td>
                   </tr>
@@ -1210,7 +1214,7 @@ interface ClaimantRow extends ClaimantSaveDto {
   _key: number;
 }
 
-function ClaimantForm({ claimants, refData, onChange }: { claimants: ClaimantRow[]; refData: ClaimReferenceDataDto; onChange: (rows: ClaimantRow[]) => void }) {
+function ClaimantForm({ claimants, refData, onChange, errors }: { claimants: ClaimantRow[]; refData: ClaimReferenceDataDto; onChange: (rows: ClaimantRow[]) => void; errors: Partial<Record<string, string>> }) {
   const [manualAddr, setManualAddr] = useState<Record<number, boolean>>({});
 
   function addClaimant() {
@@ -1233,6 +1237,8 @@ function ClaimantForm({ claimants, refData, onChange }: { claimants: ClaimantRow
     <div>
       {claimants.map((c, idx) => {
         const isManual = !!manualAddr[c._key];
+        const telephoneError = errors[`claimant_${idx}_telephone`];
+        const alternateTelephoneError = errors[`claimant_${idx}_alternateTelephone`];
         const disabledAddrStyle = { ...INPUT, background: '#f5f5f5', color: '#9ca3af' };
         return (
           <div key={c._key} style={{ border: '1px solid #e0e0e0', borderRadius: 8, padding: 16, marginBottom: 12, background: '#fff' }}>
@@ -1272,20 +1278,22 @@ function ClaimantForm({ claimants, refData, onChange }: { claimants: ClaimantRow
                 </select>
               </Field>
               <Field label="Telephone" required>
-                <div style={{ display: 'flex', border: '1px solid #d0d0d0', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', border: `1px solid ${telephoneError ? '#c62828' : '#d0d0d0'}`, borderRadius: 6, overflow: 'hidden' }}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '0 8px', background: '#f9fafb', borderRight: '1px solid #d0d0d0', fontSize: 13, whiteSpace: 'nowrap', gap: 4 }}>
                     🇺🇸 +1
                   </div>
                   <input style={{ ...INPUT, border: 'none', borderRadius: 0, flex: 1 }} value={c.telephone} onChange={e => update(c._key, { telephone: e.target.value })} placeholder="Phone number" />
                 </div>
+                {telephoneError && <span style={{ color: '#c62828', fontSize: 11, marginTop: 2 }}>{telephoneError}</span>}
               </Field>
               <Field label="Alternate Telephone">
-                <div style={{ display: 'flex', border: '1px solid #d0d0d0', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', border: `1px solid ${alternateTelephoneError ? '#c62828' : '#d0d0d0'}`, borderRadius: 6, overflow: 'hidden' }}>
                   <div style={{ display: 'flex', alignItems: 'center', padding: '0 8px', background: '#f9fafb', borderRight: '1px solid #d0d0d0', fontSize: 13, whiteSpace: 'nowrap', gap: 4 }}>
                     🇺🇸 +1
                   </div>
                   <input style={{ ...INPUT, border: 'none', borderRadius: 0, flex: 1 }} value={c.alternateTelephone ?? ''} onChange={e => update(c._key, { alternateTelephone: e.target.value || null })} placeholder="Phone number" />
                 </div>
+                {alternateTelephoneError && <span style={{ color: '#c62828', fontSize: 11, marginTop: 2 }}>{alternateTelephoneError}</span>}
               </Field>
               <Field label="Email ID" required>
                 <input style={INPUT} type="email" value={c.email} onChange={e => update(c._key, { email: e.target.value })} placeholder="email@example.com" />
@@ -1309,10 +1317,10 @@ function ClaimantForm({ claimants, refData, onChange }: { claimants: ClaimantRow
               </label>
               <Row cols={2}>
                 <Field label="Address Line 1">
-                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.addressLine1 ?? ''} onChange={e => update(c._key, { addressLine1: e.target.value || null })} placeholder="Street address" />
+                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.addressLine1 ?? ''} onChange={e => update(c._key, { addressLine1: e.target.value || null })} placeholder="Street address" maxLength={fv.ADDRESS_LINE_MAX} />
                 </Field>
                 <Field label="Address Line 2">
-                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.addressLine2 ?? ''} onChange={e => update(c._key, { addressLine2: e.target.value || null })} placeholder="Apt, suite, unit" />
+                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.addressLine2 ?? ''} onChange={e => update(c._key, { addressLine2: e.target.value || null })} placeholder="Apt, suite, unit" maxLength={fv.ADDRESS_LINE_MAX} />
                 </Field>
               </Row>
               <Row cols={4}>
@@ -1323,7 +1331,7 @@ function ClaimantForm({ claimants, refData, onChange }: { claimants: ClaimantRow
                   <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.state ?? ''} onChange={e => update(c._key, { state: e.target.value || null })} />
                 </Field>
                 <Field label="City">
-                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.city ?? ''} onChange={e => update(c._key, { city: e.target.value || null })} />
+                  <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.city ?? ''} onChange={e => update(c._key, { city: e.target.value || null })} maxLength={fv.CITY_MAX} />
                 </Field>
                 <Field label="Zip Code">
                   <input disabled={!isManual} style={isManual ? INPUT : disabledAddrStyle} value={c.zipCode ?? ''} onChange={e => update(c._key, { zipCode: e.target.value || null })} />
@@ -1400,12 +1408,27 @@ function Step3LossInformation({ form, refData, onChange, onNext, onPrev, onSave,
     if (form.physicalDamage === null)     errs.physicalDamage       = 'Select Physical Damage option to continue';
     if (form.claimOnlyThirdParty === null) errs.claimOnlyThirdParty = 'Select Claim Only for Third Party option to continue';
     if (!form.lossDescription.trim())    errs.lossDescription      = 'Provide Loss Description to continue';
+    if (form.isThirdPartyDamage) {
+      form.claimants.forEach((claimant, index) => {
+        fv.checkPhonesDiffer(
+          errs,
+          `claimant_${index}_telephone`,
+          `claimant_${index}_alternateTelephone`,
+          claimant.telephone,
+          claimant.alternateTelephone,
+        );
+      });
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   }
 
   function handleNext() {
     if (validate()) onNext();
+  }
+
+  function handleSave() {
+    if (validate()) onSave();
   }
 
   function set<K extends keyof Step3Form>(k: K, v: Step3Form[K]) {
@@ -1436,10 +1459,10 @@ function Step3LossInformation({ form, refData, onChange, onNext, onPrev, onSave,
         </label>
         <Row cols={2}>
           <Field label="Address Line 1">
-            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossAddressLine1} onChange={e => set('lossAddressLine1', e.target.value)} placeholder="Street address" />
+            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossAddressLine1} onChange={e => set('lossAddressLine1', e.target.value)} placeholder="Street address" maxLength={fv.ADDRESS_LINE_MAX} />
           </Field>
           <Field label="Address Line 2">
-            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossAddressLine2} onChange={e => set('lossAddressLine2', e.target.value)} placeholder="Apt, suite, unit" />
+            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossAddressLine2} onChange={e => set('lossAddressLine2', e.target.value)} placeholder="Apt, suite, unit" maxLength={fv.ADDRESS_LINE_MAX} />
           </Field>
         </Row>
         <Row cols={3}>
@@ -1450,12 +1473,12 @@ function Step3LossInformation({ form, refData, onChange, onNext, onPrev, onSave,
             <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossState} onChange={e => set('lossState', e.target.value)} />
           </Field>
           <Field label="City">
-            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossCity} onChange={e => set('lossCity', e.target.value)} />
+            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossCity} onChange={e => set('lossCity', e.target.value)} maxLength={fv.CITY_MAX} />
           </Field>
         </Row>
         <Row cols={4}>
           <Field label="County">
-            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossCounty} onChange={e => set('lossCounty', e.target.value)} />
+            <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossCounty} onChange={e => set('lossCounty', e.target.value)} maxLength={fv.COUNTY_MAX} />
           </Field>
           <Field label="Zip Code">
             <input disabled={!manualLossAddr} style={manualLossAddr ? INPUT : disabledAddrStyle} value={form.lossZipCode} onChange={e => set('lossZipCode', e.target.value)} />
@@ -1602,7 +1625,7 @@ function Step3LossInformation({ form, refData, onChange, onNext, onPrev, onSave,
           <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a2e' }}>Is there any third party damage?</span>
         </div>
         {form.isThirdPartyDamage && (
-          <ClaimantForm claimants={form.claimants} refData={refData} onChange={rows => set('claimants', rows)} />
+          <ClaimantForm claimants={form.claimants} refData={refData} onChange={rows => set('claimants', rows)} errors={errors} />
         )}
       </div>
 
@@ -1613,7 +1636,7 @@ function Step3LossInformation({ form, refData, onChange, onNext, onPrev, onSave,
           <button onClick={onPrev} style={{ padding: '9px 22px', border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', fontSize: 13, cursor: 'pointer', color: '#374151' }}>Previous</button>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onSave} disabled={saving} style={{ padding: '9px 22px', border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', color: '#374151', fontSize: 13, cursor: saving ? 'default' : 'pointer' }}>
+          <button onClick={handleSave} disabled={saving} style={{ padding: '9px 22px', border: '1px solid #d1d5db', borderRadius: 7, background: '#fff', color: '#374151', fontSize: 13, cursor: saving ? 'default' : 'pointer' }}>
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button onClick={handleNext} disabled={saving} style={{ padding: '9px 22px', border: 'none', borderRadius: 7, background: saving ? '#90caf9' : '#0B5AA0', color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'default' : 'pointer' }}>

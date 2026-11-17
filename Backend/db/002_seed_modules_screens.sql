@@ -10,17 +10,17 @@ TRUNCATE TABLE module             RESTART IDENTITY CASCADE;
 -- ─── Modules ──────────────────────────────────────────────────────────────────
 INSERT INTO module (id, module_name, sort_order) OVERRIDING SYSTEM VALUE VALUES
   (1,  'Dashboard',                     1),
-  (2,  'Client Management',             2),
-  (3,  'Accounts Maintenance',          3),
-  (4,  'Quotes & Policies',             4),
-  (5,  'Claims',                        5),
-  (6,  'User Groups Management',        6),
-  (7,  'User Management',               7),
-  (8,  'Insurance Product Maintenance', 8),
-  (9,  'Distribution Management',       9),
-  (10, 'Document Management',           10),
-  (11, 'Billing Management',            11),
-  (12, 'Report Management',             12);
+  (2,  'Client Management',             9),
+  (3,  'Accounts Maintenance',          10),
+  (4,  'Quotes & Policies',             2),
+  (5,  'Claims',                        3),
+  (6,  'User Groups Management',        5),
+  (7,  'User Management',               4),
+  (8,  'Insurance Product Maintenance', 11),
+  (9,  'Distribution Management',       6),
+  (10, 'Document Management',           12),
+  (11, 'Billing Management',            7),
+  (12, 'Report Management',             8);
 
 SELECT setval('module_id_seq', 12);
 

@@ -24,6 +24,11 @@ public record FieldValue(string? Name, string? Value);
 
 public record PaymentMethodSettings(string? Check_postage_type);
 
+public record DisburseCloudAuthenticationResponse(
+    [property: JsonPropertyName("access_token")] string? AccessToken,
+    [property: JsonPropertyName("token_type")] string? TokenType,
+    [property: JsonPropertyName("expires_in")] int ExpiresIn);
+
 public record DisbursementPayee(
     int? Payee_type_id,
     decimal Amount,
@@ -100,5 +105,12 @@ public record CreateDisbursementResponse(
 
 public interface IDisburseCloudClient
 {
-    Task<(CreateDisbursementResponse? Response, string RawJson, bool IsError)> CreateDisbursementAsync(CreateDisbursementRequest request);
+    Task<(CreateDisbursementResponse? Response, string RawJson, bool IsError)> CreateDisbursementAsync(
+        CreateDisbursementRequest request, CancellationToken cancellationToken = default);
+
+    Task<(DisbursementPayee? Response, string RawJson, bool IsError)> GetDisbursementPayeeAsync(
+        string disbursementUuid, string payeeUuid, CancellationToken cancellationToken = default);
+
+    Task<(bool IsSuccess, string RawJson)> CancelDisbursementAsync(
+        string disbursementUuid, string payeeUuid, CancellationToken cancellationToken = default);
 }

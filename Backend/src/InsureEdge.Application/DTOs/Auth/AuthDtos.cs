@@ -2,7 +2,7 @@
 namespace InsureEdge.Application.DTOs.Auth;
 
 // US-010: Member picker dropdown
-public record UserSelectDto(long Id, string FullName, string Email, string Initials);
+public record UserSelectDto(long Id, string FullName, string Email, string Initials, DateTime CreatedOn);
 
 // ADR-002: Login
 public record LoginRequest(string Email, string Password);

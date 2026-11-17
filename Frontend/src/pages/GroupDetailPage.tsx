@@ -16,6 +16,16 @@ import {
   validateGroupInfo, isAllowedGroupNameInput, sanitizeGroupNameInput, type GroupInfoErrors, GROUP_NAME_MAX, GROUP_EMAIL_MAX, GROUP_DESC_MAX,
 } from '../components/GroupForm/groupValidation';
 import { InfoTooltip, GROUP_RIGHTS_TOOLTIP } from '../components/GroupForm/GroupFormParts';
+import {
+  PERMISSION_COLS,
+  PERMISSION_KEYS,
+  Toggle,
+  comparePermissionModules,
+  isPermissionApplicable,
+  normalizePermissionSave,
+  permissionSectionLabel,
+  type PermissionKey,
+} from '../components/PermissionMatrix/PermissionMatrix';
 
 type AnyMutation<TVar> = { mutateAsync: (vars: TVar) => Promise<unknown>; isPending: boolean };
 
@@ -25,6 +35,25 @@ function PencilIcon() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
       <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+function PermissionStatusIcon({ granted }: { granted: boolean }) {
+  if (!granted) return <span aria-label="Not granted" style={{ color: '#d1d5db', fontSize: 15 }}>—</span>;
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Granted">
+      <circle cx="8" cy="8" r="7" fill="#00875a" />
+      <path d="m4.7 8.1 2.1 2.1 4.5-4.6" fill="none" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -320,24 +349,20 @@ function MembersPanel({
 }
 
 // ─── Group Rights panel ───────────────────────────────────────────────────────
-const PERM_COLS: { key: keyof ScreenPermissionSaveDto; label: string }[] = [
-  { key: 'isViewPermission',      label: 'View' },
-  { key: 'isCreatePermission',    label: 'Add' },
-  { key: 'isEditPermission',      label: 'Edit' },
-  { key: 'isDuplicatePermission', label: 'Clone' },
-  { key: 'isUploadPermission',    label: 'Upload' },
-  { key: 'isDownloadPermission',  label: 'Download' },
-  { key: 'isViewSensitiveInfo',   label: 'Sensitive Data' },
-  { key: 'isAccessSensitiveDoc',  label: 'Sensitive Docs' },
-  { key: 'isApproveReject',       label: 'Approve/Reject' },
-];
+function buildPermission(
+  screen: ScreenPermissionDto,
+  enabled: (key: PermissionKey) => boolean,
+): ScreenPermissionSaveDto {
+  const permission = { screenId: screen.screenId } as ScreenPermissionSaveDto;
+  for (const key of PERMISSION_KEYS) permission[key] = enabled(key);
+  return permission;
+}
 
-function makeReadOnly(id: number): ScreenPermissionSaveDto {
-  return { screenId: id, isViewPermission: true, isCreatePermission: false, isEditPermission: false, isDuplicatePermission: false, isUploadPermission: false, isDownloadPermission: false, isViewSensitiveInfo: false, isAccessSensitiveDoc: false, isApproveReject: false };
-}
-function makeAllAccess(id: number): ScreenPermissionSaveDto {
-  return { screenId: id, isViewPermission: true, isCreatePermission: true, isEditPermission: true, isDuplicatePermission: true, isUploadPermission: true, isDownloadPermission: true, isViewSensitiveInfo: true, isAccessSensitiveDoc: true, isApproveReject: true };
-}
+const makeReadOnly = (screen: ScreenPermissionDto) =>
+  buildPermission(screen, key => key === 'isViewPermission' && isPermissionApplicable(screen, key));
+const makeAllAccess = (screen: ScreenPermissionDto) =>
+  buildPermission(screen, key => isPermissionApplicable(screen, key));
+const makeNoAccess = (screen: ScreenPermissionDto) => buildPermission(screen, () => false);
 
 function GroupRightsPanel({
   allScreens, savedPermissions, editing, canEdit,
@@ -363,7 +388,7 @@ function GroupRightsPanel({
 
   const [draft, setDraft] = useState<Record<number, ScreenPermissionSaveDto>>(() => {
     const m: Record<number, ScreenPermissionSaveDto> = {};
-    for (const p of mergedPermissions) m[p.screenId] = { ...p };
+    for (const p of mergedPermissions) m[p.screenId] = normalizePermissionSave(p);
     return m;
   });
 
@@ -372,7 +397,7 @@ function GroupRightsPanel({
   const [lastKey, setLastKey] = useState(mergedKey);
   if (mergedKey !== lastKey && !editing) {
     const m: Record<number, ScreenPermissionSaveDto> = {};
-    for (const p of mergedPermissions) m[p.screenId] = { ...p };
+    for (const p of mergedPermissions) m[p.screenId] = normalizePermissionSave(p);
     setDraft(m);
     setLastKey(mergedKey);
   }
@@ -380,15 +405,13 @@ function GroupRightsPanel({
   const startEdit = () => {
     // Reset draft to current merged state
     const m: Record<number, ScreenPermissionSaveDto> = {};
-    for (const p of mergedPermissions) m[p.screenId] = { ...p };
+    for (const p of mergedPermissions) m[p.screenId] = normalizePermissionSave(p);
     setDraft(m);
     onStartEdit();
   };
 
   const hasAnyPerm = (p: ScreenPermissionDto) =>
-    p.isViewPermission || p.isCreatePermission || p.isEditPermission ||
-    p.isDuplicatePermission || p.isUploadPermission || p.isDownloadPermission ||
-    p.isViewSensitiveInfo || p.isAccessSensitiveDoc || p.isApproveReject;
+    PERMISSION_KEYS.some(key => isPermissionApplicable(p, key) && Boolean(p[key]));
 
   const filtered = useMemo(() => {
     // In view mode only show screens where at least one permission is granted
@@ -404,23 +427,41 @@ function GroupRightsPanel({
       if (!m.has(p.moduleName)) m.set(p.moduleName, []);
       m.get(p.moduleName)!.push(p);
     }
-    return m;
+    return new Map(Array.from(m.entries()).sort(([left], [right]) =>
+      comparePermissionModules(left, right)));
   }, [filtered]);
 
-  const update = (screenId: number, key: keyof ScreenPermissionSaveDto, val: boolean) =>
-    setDraft(d => ({ ...d, [screenId]: { ...d[screenId], [key]: val } }));
+  const update = (screen: ScreenPermissionDto, key: PermissionKey, val: boolean) => {
+    if (!isPermissionApplicable(screen, key)) return;
+    setDraft(d => ({
+      ...d,
+      [screen.screenId]: { ...d[screen.screenId], [key]: val },
+    }));
+  };
 
-  const applyToModule = (screenIds: number[], builder: (id: number) => ScreenPermissionSaveDto) =>
-    setDraft(d => { const n = { ...d }; for (const id of screenIds) n[id] = builder(id); return n; });
+  const applyToModule = (
+    screens: ScreenPermissionDto[],
+    builder: (screen: ScreenPermissionDto) => ScreenPermissionSaveDto,
+  ) => setDraft(d => {
+    const next = { ...d };
+    for (const screen of screens) next[screen.screenId] = builder(screen);
+    return next;
+  });
+
+  const moduleMatches = (screens: ScreenPermissionDto[], builder: (screen: ScreenPermissionDto) => ScreenPermissionSaveDto) =>
+    screens.length > 0 && screens.every(screen => {
+      const expected = builder(screen);
+      return PERMISSION_KEYS.every(key => Boolean(draft[screen.screenId]?.[key]) === expected[key]);
+    });
 
   return (
     <div style={{
-      background: '#fff', borderRadius: 8, padding: 24,
+      background: '#fff', borderRadius: 6, padding: 24,
       boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-      border: `1px solid ${editing ? '#bfdbfe' : '#e5e7eb'}`,
+      border: '1px solid #d9dde4',
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: '#111827' }}>Group Rights</span>
@@ -430,62 +471,64 @@ function GroupRightsPanel({
             You can grant access to the system module and their sub-module for the user group
           </div>
         </div>
-        {canEdit && !editing && (
-          <button onClick={startEdit} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}>
-            <PencilIcon />
-          </button>
-        )}
-      </div>
-
-      {/* Search + save/cancel in edit mode */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
-          <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', fontSize: 14 }}>⌕</span>
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Enter module or feature name"
-            style={{ paddingLeft: 28, fontSize: 13, width: '100%' }} />
-        </div>
-        {editing && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-secondary" onClick={onCancel} disabled={saving} style={{ fontSize: 13 }}>Cancel</button>
-            <button className="btn-primary" onClick={() => onSave(Object.values(draft))} disabled={saving} style={{ fontSize: 13 }}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ position: 'relative', width: 340, maxWidth: '100%' }}>
+            <span style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#6b7280', lineHeight: 0, pointerEvents: 'none' }}><SearchIcon /></span>
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Enter module or feature name"
+              style={{ paddingLeft: 28, fontSize: 13, width: '100%', boxSizing: 'border-box' }} />
           </div>
-        )}
+          {canEdit && !editing && (
+            <button onClick={startEdit} aria-label="Edit group rights" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280', padding: 4 }}>
+              <PencilIcon />
+            </button>
+          )}
+          {editing && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-secondary" onClick={onCancel} disabled={saving} style={{ fontSize: 13 }}>Cancel</button>
+              <button className="btn-primary" onClick={() => onSave(Object.values(draft))} disabled={saving} style={{ fontSize: 13 }}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Module accordions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {Array.from(modules.entries()).map(([modName, screens]) => {
           const open = openMods.has(modName);
+          const isReadOnly = moduleMatches(screens, makeReadOnly);
+          const isAllAccess = moduleMatches(screens, makeAllAccess);
           return (
-            <div key={modName} style={{ border: `1px solid ${editing ? '#bfdbfe' : '#e5e7eb'}`, borderRadius: 8, overflow: 'hidden' }}>
+            <div key={modName} style={{ border: '1px solid #d9dde4', borderRadius: 4, overflow: 'hidden', background: '#fff' }}>
               {/* Module header */}
-              <div style={{ display: 'flex', alignItems: 'center', background: open ? '#eff6ff' : '#fff', userSelect: 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', background: '#fff', userSelect: 'none' }}>
                 <div
                   onClick={() => setOpenMods(prev => { const n = new Set(prev); n.has(modName) ? n.delete(modName) : n.add(modName); return n; })}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', flex: 1, cursor: 'pointer' }}
                 >
                   <span style={{
                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    width: 20, height: 20, borderRadius: '50%',
-                    border: '2px solid #93c5fd', color: '#1d4ed8', fontSize: 13, fontWeight: 700, flexShrink: 0,
+                    width: 16, height: 16, borderRadius: '50%',
+                    border: '1px solid #6b7280', color: '#4b5563', fontSize: 13, fontWeight: 400, flexShrink: 0,
                   }}>{open ? '−' : '+'}</span>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: '#1d4ed8' }}>{modName}</span>
+                  <span style={{ fontWeight: 600, fontSize: 13, color: '#252a31' }}>{modName}</span>
                 </div>
                 {editing && (
-                  <div style={{ display: 'flex', gap: 6, padding: '0 14px' }}>
-                    <button type="button"
-                      onClick={() => applyToModule(screens.map(s => s.screenId), makeReadOnly)}
-                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer', fontWeight: 500 }}>
-                      Read Only
-                    </button>
-                    <button type="button"
-                      onClick={() => applyToModule(screens.map(s => s.screenId), makeAllAccess)}
-                      style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, border: '1px solid #0B5AA0', background: '#0B5AA0', color: '#fff', cursor: 'pointer', fontWeight: 500 }}>
-                      All Access
-                    </button>
+                  <div style={{ display: 'flex', gap: 16, padding: '0 14px' }}>
+                    <Toggle
+                      label="Read Only"
+                      checked={isReadOnly}
+                      disabled={saving}
+                      onChange={on => applyToModule(screens, on ? makeReadOnly : makeNoAccess)}
+                    />
+                    <Toggle
+                      label="All Access"
+                      checked={isAllAccess}
+                      disabled={saving}
+                      onChange={on => applyToModule(screens, on ? makeAllAccess : makeNoAccess)}
+                    />
                   </div>
                 )}
               </div>
@@ -495,9 +538,9 @@ function GroupRightsPanel({
                 <div style={{ overflowX: 'auto', borderTop: '1px solid #e5e7eb' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                     <thead>
-                      <tr style={{ background: '#f9fafb' }}>
-                        <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#6b7280', minWidth: 180, paddingLeft: 28 }}>Screen</th>
-                        {PERM_COLS.map(c => (
+                      <tr style={{ background: '#fff' }}>
+                        <th style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#6b7280', minWidth: 180, paddingLeft: 28 }}>{permissionSectionLabel(modName)}</th>
+                        {PERMISSION_COLS.map(c => (
                           <th key={c.key} style={{ padding: '7px 6px', textAlign: 'center', fontWeight: 600, fontSize: 11, color: '#6b7280', minWidth: 65, whiteSpace: 'nowrap' }}>{c.label}</th>
                         ))}
                       </tr>
@@ -506,18 +549,26 @@ function GroupRightsPanel({
                       {screens.map(s => (
                         <tr key={s.screenId} style={{ borderTop: '1px solid #f3f4f6' }}>
                           <td style={{ padding: '7px 12px 7px 28px', color: '#374151' }}>{s.screenName}</td>
-                          {PERM_COLS.map(col => {
-                            const val = editing
+                          {PERMISSION_COLS.map(col => {
+                            const applicable = isPermissionApplicable(s, col.key);
+                            const val = applicable && (editing
                               ? (draft[s.screenId]?.[col.key] as boolean ?? false)
-                              : (s[col.key as keyof ScreenPermissionDto] as boolean);
+                              : Boolean(s[col.key]));
                             return (
                               <td key={col.key} style={{ textAlign: 'center', padding: '7px 4px' }}>
-                                {editing ? (
+                                {!applicable ? (
+                                  <span
+                                    aria-label={`${s.screenName} ${col.label} not available`}
+                                    title="This permission does not apply to this screen"
+                                    style={{ color: '#b8bec7', fontSize: 17, lineHeight: 1 }}
+                                  >⊘</span>
+                                ) : editing ? (
                                   <input type="checkbox" checked={val}
-                                    onChange={e => update(s.screenId, col.key, e.target.checked)}
+                                    aria-label={`${s.screenName} ${col.label}`}
+                                    onChange={e => update(s, col.key, e.target.checked)}
                                     style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#0B5AA0' }} />
                                 ) : (
-                                  <span style={{ fontSize: 15, color: val ? '#16a34a' : '#d1d5db' }}>{val ? '✓' : '–'}</span>
+                                  <PermissionStatusIcon granted={val} />
                                 )}
                               </td>
                             );
@@ -599,10 +650,7 @@ export default function GroupDetailPage() {
           <span style={{ cursor: 'pointer', color: '#0B5AA0' }} onClick={() => navigate('/groups')}>User Group Management</span>
           {' / '}View Group
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827' }}>{group.groupName}</h1>
-          <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 16px' }} onClick={() => navigate('/groups')}>Back</button>
-        </div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827' }}>{group.groupName}</h1>
       </div>
 
       {/* Toast */}
@@ -648,6 +696,13 @@ export default function GroupDetailPage() {
         onCancel={() => setEditingPerms(false)}
         saving={savePerms.isPending}
       />
+
+      <div style={{
+        display: 'flex', justifyContent: 'flex-end', marginTop: 8, padding: '10px 12px',
+        background: '#fff', border: '1px solid #d9dde4', borderRadius: 6,
+      }}>
+        <button className="btn-secondary" style={{ fontSize: 13, padding: '7px 32px' }} onClick={() => navigate('/groups')}>Back</button>
+      </div>
     </div>
   );
 }

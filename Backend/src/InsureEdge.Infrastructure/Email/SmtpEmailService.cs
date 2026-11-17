@@ -27,9 +27,10 @@ public class SmtpEmailService : IEmailService
         _log = log;
         _host = config["SMTP_HOST"] ?? throw new InvalidOperationException("SMTP_HOST not configured.");
         _port = int.Parse(config["SMTP_PORT"] ?? "587");
-        _username = config["SMTP_USERNAME"] ?? throw new InvalidOperationException("SMTP_USERNAME not configured.");
+        _username = config["SMTP_USERNAME"] ?? config["SMTP_USER"]
+            ?? throw new InvalidOperationException("SMTP_USERNAME/SMTP_USER not configured.");
         _password = config["SMTP_PASSWORD"] ?? throw new InvalidOperationException("SMTP_PASSWORD not configured.");
-        _fromEmail = config["SMTP_FROM_EMAIL"] ?? _username;
+        _fromEmail = config["SMTP_FROM_EMAIL"] ?? config["SMTP_FROM_ADDRESS"] ?? _username;
         _fromName = config["SMTP_FROM_NAME"] ?? "Hudson Bailey InsureEdge";
         // Try output-dir path first; fall back to source path for dev
         var outDir = Path.Combine(AppContext.BaseDirectory, "Email", "Templates");

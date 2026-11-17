@@ -3,6 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
 import type { ClaimAuthorityUserSelectionDto } from '../types/Claim';
+import SharedDatePicker from '../components/ui/DatePicker';
 
 // ─── Static reference data ─────────────────────────────────────────────────
 
@@ -624,7 +625,7 @@ export default function ClaimsAuthorityEditPage() {
           <MultiSelect label="Payment Method Restrictions" required options={PAYMENT_METHODS} selected={paymentMethods} onChange={setPaymentMethods} error={errors.paymentMethods} />
         </Grid4>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px 20px' }}>
-          <DatePicker label="Date of Authority Assignment" required value={dateOfAssignment} onChange={setDateOfAssignment} error={errors.dateOfAssignment} />
+          <Field label="Date of Authority Assignment" required><SharedDatePicker value={dateOfAssignment} onChange={setDateOfAssignment} hasError={Boolean(errors.dateOfAssignment)} />{errors.dateOfAssignment && <span style={{ color: '#c62828', fontSize: 11 }}>{errors.dateOfAssignment}</span>}</Field>
           <SingleSelect label="Can Deny Worksheet" required options={['Yes', 'No']} value={canDenyWorksheet} onChange={setCanDenyWorksheet} error={errors.canDenyWorksheet} />
         </div>
       </Section>

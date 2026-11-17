@@ -5,6 +5,7 @@ import { dashboardApi } from '../api/dashboard';
 import { authApi } from '../api/auth';
 import { usePermissions } from '../contexts/PermissionContext';
 import type { DashboardFailedPayment, DashboardPagedResponse, DashboardPendingCancellation, DashboardPreference, DashboardQuoteQuery, DashboardQuoteResponse, DashboardRenewalRadar, DashboardSummary, DashboardWidgetPreference } from '../types/Dashboard';
+import { showPagination } from '../utils/fieldValidation';
 import './DashboardPage.css';
 
 type FilterKey = 'accountType' | 'transactionType' | 'insuredName' | 'lob' | 'effectiveDate' | 'approvalStatus' | 'creationDate' | 'premiumEstimate' | 'status';
@@ -87,6 +88,8 @@ function FailedPaymentFilter({ label, filterKey, value, onApply }: { label: stri
 function Pagination({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize?: (size: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const numbers = useMemo(() => [...new Set([1, 2, page - 1, page, page + 1, totalPages])].filter(value => value >= 1 && value <= totalPages).sort((a, b) => a - b), [page, totalPages]);
+  if (!showPagination(total)) return null;
+
   return <div className="dashboard-pagination">
     <span>Showing {onPageSize ? <select value={pageSize} onChange={event => onPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option></select> : pageSize} records from {total.toLocaleString()} Results</span>
     <div className="dashboard-page-buttons"><button disabled={page === 1} onClick={() => onPage(1)} aria-label="First page"><ChevronsLeft size={16} /></button><button disabled={page === 1} onClick={() => onPage(page - 1)} aria-label="Previous page"><ChevronLeft size={16} /></button>

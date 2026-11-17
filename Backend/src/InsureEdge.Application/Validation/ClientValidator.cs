@@ -10,7 +10,26 @@ public static partial class ClientValidator
 {
     public const string Canada = "Canada";
     public const string UnitedStates = "United States";
+    public const string LegalAddressType = "Legal";
+    public const string MailingAddressType = "Mailing";
     public static readonly string[] Countries = [UnitedStates, Canada];
+    public static readonly string[] AddressTypes = [LegalAddressType, MailingAddressType];
+    public static readonly HashSet<string> UsStates = new(StringComparer.Ordinal)
+    {
+        "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", "Delaware",
+        "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", "Kansas", "Kentucky",
+        "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", "Minnesota", "Mississippi",
+        "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico",
+        "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+        "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+        "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+    };
+    public static readonly HashSet<string> CanadaRegions = new(StringComparer.Ordinal)
+    {
+        "Alberta", "British Columbia", "Manitoba", "New Brunswick", "Newfoundland and Labrador",
+        "Northwest Territories", "Nova Scotia", "Nunavut", "Ontario", "Prince Edward Island",
+        "Quebec", "Saskatchewan", "Yukon"
+    };
     public static readonly string[] CompanyTypes = ["MGA", "Insurance Carrier"];
     public static readonly string[] OfficeTypes = ["Branch", "Regional"];
     public const int BusinessDescriptionMinLength = 5;
@@ -60,9 +79,12 @@ public static partial class ClientValidator
         var name = r.CompanyName?.Trim() ?? "";
         if (name.Length == 0) return Required("Company Name");
         if (name.Length is < 5 or > 75) return "Company Name should be in between 5 to 75 characters";
+        if (!Blank(r.LogoBase64) && ValidateLogo(r.LogoBase64!, r.LogoContentType) is { } logoError)
+            return logoError;
         if (Blank(r.TypeOfCompany)) return Required("Type of Company");
         if (!CompanyTypes.Contains(r.TypeOfCompany)) return Invalid("Type of Company");
-        if (!Blank(r.NaicCode) && !(r.NaicCode!.Length == 5 && r.NaicCode.All(char.IsAsciiDigit))) return Invalid("NAIC Code");
+        if (Blank(r.NaicCode)) return Required("NAIC Code");
+        if (!(r.NaicCode!.Length == 5 && r.NaicCode.All(char.IsAsciiDigit))) return Invalid("NAIC Code");
         if (r.RegisteredTradeMark?.Length > 75) return Invalid("Registered Trade Mark");
         if (Blank(r.DomicileCountry)) return Required("Domicile Country");
         if (!Countries.Contains(r.DomicileCountry)) return Invalid("Domicile Country");
@@ -89,13 +111,13 @@ public static partial class ClientValidator
         if (name.Length == 0) return Required("Company Name");
         if (name.Length > 75) return Invalid("Company Name");
         if (r.Id is null && Blank(r.LogoBase64)) return Required("Company Logo");
-        if (!Blank(r.LogoBase64) && !IsValidCompanyLogo(r.LogoBase64!, r.LogoContentType))
-            return Invalid("Company Logo");
+        if (!Blank(r.LogoBase64) && ValidateLogo(r.LogoBase64!, r.LogoContentType) is { } logoError)
+            return logoError;
         if (Blank(r.DomicileCountry)) return Required("Domicile Country");
         if (!Countries.Contains(r.DomicileCountry)) return Invalid("Domicile Country");
         if (Blank(r.StateOfDomicile)) return Required(r.DomicileCountry == Canada ? "Province of Domicile" : "State of Domicile");
         if (Blank(r.NaicCode)) return Required("NAIC Code");
-        if (!r.NaicCode!.All(char.IsAsciiDigit)) return Invalid("NAIC Code");
+        if (!(r.NaicCode!.Length == 5 && r.NaicCode.All(char.IsAsciiDigit))) return Invalid("NAIC Code");
         if (Blank(r.FederalTaxId)) return Required("Federal Tax ID");
         if (!IsValidFederalTaxId(r.FederalTaxId)) return Invalid("Federal Tax ID");
         if (!Blank(r.EmailId) && !IsValidEmail(r.EmailId)) return Invalid("Email ID");
@@ -103,9 +125,12 @@ public static partial class ClientValidator
         if (!IsValidExtension(r.Extension)) return Invalid("Extension");
         if (ValidateBusinessDescription(r.BusinessDescription) is { } descriptionError) return descriptionError;
         if (r.LegalAddress is null) return Required("Home Office / Legal Address");
+        if (r.LegalAddress.AddressType != LegalAddressType) return Invalid("Home Office / Legal Address Type");
         if (ValidateAddress(r.LegalAddress) is { } legalError) return legalError;
         if (r.MailingAddress is null) return Required("Mailing Address");
+        if (r.MailingAddress.AddressType != MailingAddressType) return Invalid("Mailing Address Type");
         if (ValidateAddress(r.MailingAddress) is { } mailingError) return mailingError;
+        if (ValidateSameAsLegal(r.MailingAddress, r.LegalAddress) is { } sameAsError) return sameAsError;
         if (r.PrimaryContact is null) return Required("Primary Contact");
         if (Blank(r.PrimaryContact.TelephoneNumber)) return Required("Telephone Number");
         if (ValidateContact(r.PrimaryContact) is { } contactError) return contactError;
@@ -117,19 +142,61 @@ public static partial class ClientValidator
         return null;
     }
 
-    private static bool IsValidCompanyLogo(string base64, string? contentType)
+    private static string? ValidateLogo(string base64, string? contentType)
     {
-        if (contentType is not ("image/png" or "image/jpeg" or "image/gif")) return false;
+        if (contentType is not ("image/png" or "image/jpeg" or "image/gif"))
+            return "Please upload file based on the criteria listed";
         try
         {
             var bytes = Convert.FromBase64String(base64).Length;
-            return bytes is >= 10 * 1024 and <= 10 * 1024 * 1024;
+            if (bytes < 10 * 1024) return "File size is too small";
+            if (bytes > 10 * 1024 * 1024) return "File size is too large";
+            return null;
         }
-        catch (FormatException) { return false; }
+        catch (FormatException)
+        {
+            return "Please upload file based on the criteria listed";
+        }
     }
 
-    public static string? ValidateAddress(SaveAddressRequest r) =>
-        ValidateAddressFields(r.AddressLine1, r.AddressLine2, r.Country, r.State, r.City, r.County, r.ZipCode);
+    public static SaveAddressRequest NormalizeAddress(SaveAddressRequest r) =>
+        r.Country == Canada ? r with { County = null } : r;
+
+    public static string? ValidateAddress(SaveAddressRequest r)
+    {
+        if (!AddressTypes.Contains(r.AddressType)) return Invalid("Address Type");
+        if (r.IsSameAsLegal && r.AddressType != MailingAddressType)
+            return "Same as Home Office / Legal Address is valid only for Mailing Address";
+        if (r.IsSameAsLegal && r.IsManual)
+            return "Enter Address Manually must be unchecked when Same as Home Office / Legal Address is selected";
+        return ValidateAddressFields(r.AddressLine1, r.AddressLine2, r.Country, r.State, r.City, r.County, r.ZipCode);
+    }
+
+    public static string? ValidateSameAsLegal(SaveAddressRequest mailing, SaveAddressRequest? legal)
+    {
+        if (!mailing.IsSameAsLegal) return null;
+        if (legal is null) return Required("Home Office / Legal Address");
+        return SameAddressValues(mailing.AddressLine1, mailing.AddressLine2, mailing.Country, mailing.State,
+            mailing.City, mailing.County, mailing.ZipCode, mailing.Latitude, mailing.Longitude,
+            legal.AddressLine1, legal.AddressLine2, legal.Country, legal.State, legal.City,
+            legal.Country == Canada ? null : legal.County,
+            legal.ZipCode, legal.Latitude, legal.Longitude)
+            ? null
+            : "Mailing Address must match Home Office / Legal Address when Same as Home Office / Legal Address is selected";
+    }
+
+    public static string? ValidateSameAsLegal(SaveAddressRequest mailing, AddressDto? legal)
+    {
+        if (!mailing.IsSameAsLegal) return null;
+        if (legal is null) return Required("Home Office / Legal Address");
+        return SameAddressValues(mailing.AddressLine1, mailing.AddressLine2, mailing.Country, mailing.State,
+            mailing.City, mailing.County, mailing.ZipCode, mailing.Latitude, mailing.Longitude,
+            legal.AddressLine1, legal.AddressLine2, legal.Country, legal.State, legal.City,
+            legal.Country == Canada ? null : legal.County,
+            legal.ZipCode, legal.Latitude, legal.Longitude)
+            ? null
+            : "Mailing Address must match Home Office / Legal Address when Same as Home Office / Legal Address is selected";
+    }
 
     public static string? ValidateContact(SaveContactRequest r)
     {
@@ -158,14 +225,15 @@ public static partial class ClientValidator
         if (r.OfficeName.Length > 75) return Invalid("Office Name");
         if (Blank(r.OfficeType)) return Required("Office Type");
         if (!OfficeTypes.Contains(r.OfficeType)) return Invalid("Office Type");
-        return ValidateAddressFields(r.AddressLine1, r.AddressLine2, r.Country, r.State, r.City, r.County, r.ZipCode)
+        return ValidateAddressFields(r.AddressLine1, r.AddressLine2, r.Country, r.State, r.City, r.County, r.ZipCode,
+                validateRegionMembership: false, forbidCanadaCounty: false)
             ?? ValidateContact(new SaveContactRequest(r.ContactName, r.ContactSuffix, r.ContactTitle, r.ContactEmail,
                 r.ContactPhone, r.ContactPhoneCc, r.ContactExt, r.ContactAltPhone, r.ContactAltPhoneCc))
             ?? r.SecondaryContacts?.Select(ValidateContact).FirstOrDefault(e => e != null);
     }
 
     private static string? ValidateAddressFields(string? line1, string? line2, string? country, string? state,
-        string? city, string? county, string? zip)
+        string? city, string? county, string? zip, bool validateRegionMembership = true, bool forbidCanadaCounty = true)
     {
         if (Blank(line1)) return Required("Address Line 1");
         if (line1!.Length > 500) return Invalid("Address Line 1");
@@ -174,14 +242,30 @@ public static partial class ClientValidator
         if (!Countries.Contains(country)) return Invalid("Country");
         var isCanada = country == Canada;
         if (Blank(state)) return Required(isCanada ? "Province" : "State");
+        if (validateRegionMembership && !(isCanada ? CanadaRegions : UsStates).Contains(state!)) return Invalid(isCanada ? "Province" : "State");
         if (Blank(city)) return Required("City");
         if (city!.Length > 50) return Invalid("City");
         if (county?.Length > 50) return Invalid("County");
+        if (forbidCanadaCounty && isCanada && !Blank(county)) return Invalid("County");
         var zipLabel = isCanada ? "Postal Code" : "Zip Code";
         if (Blank(zip)) return Required(zipLabel);
         if (!IsValidZip(zip, country)) return Invalid(zipLabel);
         return null;
     }
+
+    private static bool SameAddressValues(
+        string? line1, string? line2, string? country, string? state, string? city, string? county,
+        string? zip, string? latitude, string? longitude,
+        string? otherLine1, string? otherLine2, string? otherCountry, string? otherState, string? otherCity,
+        string? otherCounty, string? otherZip, string? otherLatitude, string? otherLongitude) =>
+        SameText(line1, otherLine1) && SameText(line2, otherLine2) && SameText(country, otherCountry)
+        && SameText(state, otherState) && SameText(city, otherCity) && SameText(county, otherCounty)
+        && SameText(zip, otherZip) && SameText(latitude, otherLatitude) && SameText(longitude, otherLongitude);
+
+    private static bool SameText(string? left, string? right) =>
+        string.Equals(NormalizeText(left), NormalizeText(right), StringComparison.Ordinal);
+
+    private static string NormalizeText(string? value) => string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
 
     private static bool Blank(string? s) => string.IsNullOrWhiteSpace(s);
 }

@@ -1,0 +1,20 @@
+.shared-date-picker { width: 100%; }
+.shared-date-picker__control { height: 28px !important; background: #f4f5f8 !important; border-color: #909ba8 !important; border-radius: 2px !important; box-sizing: border-box; }
+.shared-date-picker__control--open { border-color: #0b66b2 !important; box-shadow: 0 0 0 1px #0b66b2; }
+.shared-date-picker__control--error { border-color: #c62828 !important; background: #fff5f5 !important; }
+.shared-date-picker__control--disabled { border-color: #aab2bb !important; background: #e4e4e4 !important; color: #92979d; }
+.shared-date-picker__input { height: 26px !important; padding: 0 8px !important; color: #30363d; font-size: 11px !important; line-height: 26px; }
+.shared-date-picker__control--disabled .shared-date-picker__input { color: #8b8b8b; }
+.shared-date-picker__button { width: 28px !important; height: 27px !important; flex-basis: 28px !important; padding: 0 !important; color: #303942; border: 0 !important; border-left: 0 !important; background: transparent !important; }
+.shared-date-picker__button:disabled { color: #949ca5; cursor: default !important; }
+.shared-date-picker__popup { width: 240px !important; padding: 14px 12px 12px !important; border: 1px solid #bcc6d2 !important; border-radius: 2px !important; box-shadow: none !important; }
+.shared-date-picker__popup > div:first-child { min-height: 26px; margin-bottom: 10px !important; }
+.shared-date-picker__popup > div:first-child > div:first-child { display: flex; gap: 18px; color: #075fa8; font-size: 12px !important; font-weight: 700 !important; }
+.shared-date-picker__popup > div:first-child > div:first-child span { color: #075fa8 !important; }
+.shared-date-picker__popup > div:first-child > div:last-child { gap: 8px !important; }
+.shared-date-picker__popup > div:first-child > div:last-child button { width: 20px !important; height: 24px !important; padding: 0 !important; border: 0 !important; background: transparent !important; color: #075fa8 !important; font-size: 0 !important; }
+.shared-date-picker__popup > div:first-child > div:last-child button::before { font-size: 22px; line-height: 20px; }
+.shared-date-picker__popup > div:first-child > div:last-child button:first-child::before { content: '\2039'; }
+.shared-date-picker__popup > div:first-child > div:last-child button:last-child::before { content: '\203A'; }
+.shared-date-picker__popup > div:nth-child(2) div { color: #727b86 !important; font-size: 10px !important; font-weight: 400 !important; }
+.shared-date-picker__popup > div:nth-child(3) button { font-size: 11px !important; }

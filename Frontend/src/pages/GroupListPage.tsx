@@ -11,6 +11,7 @@ import { groupsApi } from '../api/groups';
 import { usePermissions } from '../contexts/PermissionContext';
 import type { GroupListDto } from '../types/Group';
 import { useColumnOrder } from '../hooks/useColumnOrder';
+import { useSessionState } from '../hooks/useSessionState';
 import {
   ColumnFilterPopup, applyColumnFilters, distinctValues, hasActiveFilters, type ColumnFilters,
 } from '../components/grid/ColumnFilter';
@@ -259,7 +260,7 @@ export default function GroupListPage() {
   // Column filters (QA UGM-05). The server pages the list, so filtering only the current page
   // missed matches on other pages; while a filter is open or applied, load every row instead
   // and page the filtered result here.
-  const [filters, setFilters] = useState<ColumnFilters<ColKey>>({});
+  const [filters, setFilters] = useSessionState<ColumnFilters<ColKey>>('grid-filters:user-groups', {});
   const filtering = hasActiveFilters(filters);
   const needAllRows = filtering || openFilterCol !== null;
 

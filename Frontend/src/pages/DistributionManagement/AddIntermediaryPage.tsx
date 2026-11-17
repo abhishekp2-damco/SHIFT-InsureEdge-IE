@@ -363,6 +363,7 @@ export default function AddIntermediaryPage({ onBack, onNext }: { onBack: () => 
       fv.checkPhone(e, `${p}_phone`, c.phone, 'Telephone Number', true);
       fv.checkExtension(e, `${p}_extension`, c.extension);
       fv.checkPhone(e, `${p}_altPhone`, c.altPhone, 'Alternative Telephone Number');
+      fv.checkPhonesDiffer(e, `${p}_phone`, `${p}_altPhone`, c.phone, c.altPhone);
     });
     req('businessName', form.businessName, 'Business Name');
     fv.checkEmail(e, 'disbursementEmail', form.disbursementEmail, 'Email', true);

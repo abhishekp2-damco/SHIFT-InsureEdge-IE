@@ -1,5 +1,6 @@
 // AI_GENERATED | HUMAN_VALIDATION_REQUIRED
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { clientManagementApi } from '../api/clientManagement';
 import type {
   ClientDetail,
@@ -17,7 +18,7 @@ import type {
 } from '../types/ClientManagement';
 import { AddressEditor, type AddressForm, toAddressForm } from './ClientManagement/AddressEditor';
 import {
-  ContactListEditor, ExtensionInput, Field, MultiSelect, PHONE_CC_US, PhoneInput, Select, TextInput, YearPicker,
+  ContactListEditor, ExtensionInput, Field, MultiSelect, OptionSelect, PHONE_CC_US, PhoneInput, Select, TextInput, YearPicker,
   formatPhoneWithFlag, toContactRequest, validateContactList,
 } from './ClientManagement/ClientFormFields';
 import { OfficeLocations } from './ClientManagement/OfficeLocations';
@@ -25,8 +26,9 @@ import { ClientCompanyInformation, ClientCompanyProducts } from './ClientManagem
 import {
   BUSINESS_DESCRIPTION_MAX, CANADA, COMPANY_TYPES, COUNTRIES, EST_DWP_OPTIONS, type Errors, US_STATES as US_STATE_NAMES,
   apiErrorMessage, digitsOnly, formatFederalTaxId, regionOptions, stateLabel, todayMmDdYyyy,
-  validateAddress, validateBusinessDescription, validateClientInfo, zipLabel,
+  validateAddress, validateBusinessDescription, validateClientInfo, validateClientLogoFile, zipLabel,
 } from './ClientManagement/validation';
+import * as fv from '../utils/fieldValidation';
 
 // ── Styles (matching app design system) ───────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -91,10 +93,6 @@ function TrashIcon() {
   );
 }
 
-const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/gif'];
-const LOGO_MIN_BYTES = 10 * 1024;
-const LOGO_MAX_BYTES = 10 * 1024 * 1024;
-
 function ImageUpload({ value, contentType, onChange, label = 'Logo / Image', required, error }: {
   value?: string | null;
   contentType?: string | null;
@@ -106,21 +104,31 @@ function ImageUpload({ value, contentType, onChange, label = 'Logo / Image', req
   const [dragging, setDragging] = React.useState(false);
   const [fileError, setFileError] = React.useState('');
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const selectionVersion = React.useRef(0);
 
   const handleFile = (file: File) => {
     // PNG, JPEG, GIF; 10 KB – 10 MB
-    if (!LOGO_TYPES.includes(file.type) || file.size < LOGO_MIN_BYTES || file.size > LOGO_MAX_BYTES) {
-      setFileError(`Provide valid ${label} to continue`);
+    const version = ++selectionVersion.current;
+    const validationError = validateClientLogoFile(file);
+    if (validationError) {
+      onChange('', '', '');
+      setFileError(validationError);
       return;
     }
     setFileError('');
     const reader = new FileReader();
     reader.onload = e => {
+      if (version !== selectionVersion.current) return;
       const result = e.target?.result as string;
       // result is "data:image/png;base64,XXXX" — extract just the base64 part
       const [header, b64] = result.split(',');
       const ct = header.replace('data:', '').replace(';base64', '');
       onChange(b64, ct, file.name);
+    };
+    reader.onerror = () => {
+      if (version !== selectionVersion.current) return;
+      onChange('', '', '');
+      setFileError('Please upload file based on the criteria listed');
     };
     reader.readAsDataURL(file);
   };
@@ -175,6 +183,7 @@ function ImageUpload({ value, contentType, onChange, label = 'Logo / Image', req
 }
 
 function ReadField({ label, value }: { label: string; value?: string | number | null }) {
+  if (/telephone|phone/i.test(label)) value = fv.formatPhoneView(value == null ? null : String(value));
   const empty = value === undefined || value === null || String(value).trim() === '';
   return (
     <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8, marginBottom: 0 }}>
@@ -417,20 +426,20 @@ function CompanyModal({ company, onSave, onClose }: {
           <div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#374151', marginBottom: 14 }}>Home Office / Legal Address</div>
             <div style={{ display: 'grid', gap: 12 }}>
-              <EditField label="Address Line 1" value={form.legalAddress?.addressLine1} onChange={v => upLegal('addressLine1', v)} />
-              <EditField label="Address Line 2" value={form.legalAddress?.addressLine2} onChange={v => upLegal('addressLine2', v)} />
+              <EditField label="Address Line 1" value={form.legalAddress?.addressLine1} onChange={v => upLegal('addressLine1', v)} maxLength={fv.ADDRESS_LINE_MAX} />
+              <EditField label="Address Line 2" value={form.legalAddress?.addressLine2} onChange={v => upLegal('addressLine2', v)} maxLength={fv.ADDRESS_LINE_MAX} />
               <EditField label="Country" value={form.legalAddress?.country} onChange={v => upLegal('country', v)} />
               <EditField label="State" value={form.legalAddress?.state} onChange={v => upLegal('state', v)} />
-              <EditField label="City" value={form.legalAddress?.city} onChange={v => upLegal('city', v)} />
-              <EditField label="County" value={form.legalAddress?.county} onChange={v => upLegal('county', v)} />
+              <EditField label="City" value={form.legalAddress?.city} onChange={v => upLegal('city', v)} maxLength={fv.CITY_MAX} />
+              <EditField label="County" value={form.legalAddress?.county} onChange={v => upLegal('county', v)} maxLength={fv.COUNTY_MAX} />
               <EditField label="Zip Code" value={form.legalAddress?.zipCode} onChange={v => upLegal('zipCode', v)} />
             </div>
             <div style={{ fontSize: 13, fontWeight: 800, color: '#374151', margin: '20px 0 14px' }}>Mailing Address</div>
             <div style={{ display: 'grid', gap: 12 }}>
-              <EditField label="Address Line 1" value={form.mailingAddress?.addressLine1} onChange={v => upMailing('addressLine1', v)} />
+              <EditField label="Address Line 1" value={form.mailingAddress?.addressLine1} onChange={v => upMailing('addressLine1', v)} maxLength={fv.ADDRESS_LINE_MAX} />
               <EditField label="Country" value={form.mailingAddress?.country} onChange={v => upMailing('country', v)} />
               <EditField label="State" value={form.mailingAddress?.state} onChange={v => upMailing('state', v)} />
-              <EditField label="City" value={form.mailingAddress?.city} onChange={v => upMailing('city', v)} />
+              <EditField label="City" value={form.mailingAddress?.city} onChange={v => upMailing('city', v)} maxLength={fv.CITY_MAX} />
               <EditField label="Zip Code" value={form.mailingAddress?.zipCode} onChange={v => upMailing('zipCode', v)} />
             </div>
           </div>
@@ -457,13 +466,14 @@ function CompanyModal({ company, onSave, onClose }: {
 }
 
 // ── Address inline-edit section (CM-02 – CM-06) ───────────────────────────────
-function AddressSection({ title, addressType, addr, legalAddr, onSave }: {
+function AddressSection({ title, addressType, addr, legalAddr, onSave, onEditingChange }: {
   title: string;
   addressType: 'Legal' | 'Mailing';
   addr?: AddressDto | null;
   // Mailing only: the saved Home Office / Legal address to copy from.
   legalAddr?: AddressDto | null;
   onSave: (req: SaveAddressRequest) => Promise<void>;
+  onEditingChange: (editing: boolean) => void;
 }) {
   const isMailing = addressType === 'Mailing';
   const [editing, setEditing] = useState(false);
@@ -476,6 +486,12 @@ function AddressSection({ title, addressType, addr, legalAddr, onSave }: {
     setForm(toAddressForm(addr));
     setErrors({}); setSubmitted(false);
     setEditing(true);
+    onEditingChange(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    onEditingChange(false);
   };
 
   const updateWith = (fn: (prev: AddressForm) => AddressForm) => setForm(prev => {
@@ -486,7 +502,7 @@ function AddressSection({ title, addressType, addr, legalAddr, onSave }: {
 
   // Q4 default: copy once and lock the fields while checked; unchecking unlocks and keeps the data.
   const toggleSameAsLegal = (checked: boolean) => updateWith(prev => checked
-    ? { ...toAddressForm(legalAddr), isManual: prev.isManual, isSameAsLegal: true }
+    ? { ...toAddressForm(legalAddr), isManual: false, isSameAsLegal: true }
     : { ...prev, isSameAsLegal: false });
 
   const save = async () => {
@@ -498,6 +514,7 @@ function AddressSection({ title, addressType, addr, legalAddr, onSave }: {
     try {
       await onSave({ ...form, addressType, county: form.country === CANADA ? '' : form.county });
       setEditing(false);
+      onEditingChange(false);
     } catch { /* parent shows the error toast; stay in edit mode */ }
     finally { setSaving(false); }
   };
@@ -516,7 +533,7 @@ function AddressSection({ title, addressType, addr, legalAddr, onSave }: {
             </label>
           )}
           <AddressEditor value={form} onChange={updateWith} errors={errors} disabled={isMailing && !!form.isSameAsLegal} />
-          <SectionActions onCancel={() => setEditing(false)} onSave={save} saving={saving} />
+          <SectionActions onCancel={cancelEdit} onSave={save} saving={saving} />
         </>
       ) : (
         <>
@@ -555,10 +572,11 @@ function ContactReadFields({ contact }: { contact: ContactDto }) {
   );
 }
 
-function ContactSection({ contact, secondaryContacts, onSave }: {
+function ContactSection({ contact, secondaryContacts, onSave, onEditingChange }: {
   contact?: ContactDto | null;
   secondaryContacts: ContactDto[];
   onSave: (primary: SaveContactRequest, secondaries: SaveContactRequest[]) => Promise<void>;
+  onEditingChange: (editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [primary, setPrimary] = useState<SaveContactRequest>(() => toContactRequest(contact));
@@ -572,6 +590,12 @@ function ContactSection({ contact, secondaryContacts, onSave }: {
     setSecondaries(secondaryContacts.map(toContactRequest));
     setErrors({}); setSubmitted(false);
     setEditing(true);
+    onEditingChange(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    onEditingChange(false);
   };
 
   const changePrimary = (p: SaveContactRequest) => { setPrimary(p); if (submitted) setErrors(validateContactList(p, secondaries)); };
@@ -583,7 +607,11 @@ function ContactSection({ contact, secondaryContacts, onSave }: {
     setErrors(errs);
     if (Object.keys(errs).length) return;
     setSaving(true);
-    try { await onSave(primary, secondaries); setEditing(false); }
+    try {
+      await onSave(primary, secondaries);
+      setEditing(false);
+      onEditingChange(false);
+    }
     catch { /* parent shows the error toast; stay in edit mode */ }
     finally { setSaving(false); }
   };
@@ -595,7 +623,7 @@ function ContactSection({ contact, secondaryContacts, onSave }: {
         <>
           <ContactListEditor primary={primary} secondaries={secondaries} errors={errors}
             onPrimaryChange={changePrimary} onSecondariesChange={changeSecondaries} />
-          <SectionActions onCancel={() => setEditing(false)} onSave={save} saving={saving} />
+          <SectionActions onCancel={cancelEdit} onSave={save} saving={saving} />
         </>
       ) : contact ? (
         <>
@@ -616,18 +644,33 @@ function ContactSection({ contact, secondaryContacts, onSave }: {
 }
 
 // ── Tab 1: Client Information ──────────────────────────────────────────────────
-function ClientInfoTab({ client, onRefresh, showToast }: {
+function ClientInfoTab({ client, onRefresh, showToast, onEditingChange }: {
   client: ClientDetail;
   onRefresh: () => void;
   showToast: (msg: string, ok?: boolean) => void;
+  onEditingChange: (editing: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [editingSections, setEditingSections] = useState<Set<string>>(() => new Set());
   const [form, setForm] = useState<SaveClientInfoRequest>({ companyName: client.companyName });
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const hasLogo = (f: SaveClientInfoRequest) => !!(f.logoBase64 ?? client.logoBase64);
+
+  const setSectionEditing = useCallback((section: string, isEditing: boolean) => {
+    setEditingSections(current => {
+      const next = new Set(current);
+      if (isEditing) next.add(section);
+      else next.delete(section);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    onEditingChange(editing || editingSections.size > 0);
+  }, [editing, editingSections, onEditingChange]);
 
   const startEdit = () => {
     setForm({
@@ -726,18 +769,21 @@ function ClientInfoTab({ client, onRefresh, showToast }: {
               contentType={form.logoContentType ?? client.logoContentType}
               onChange={(b64, ct, name) => patch({ logoBase64: b64, logoContentType: ct, logoFileName: name })}
             />
-            <div className="fg3">
+            <div className="fg2">
               <Field label="Company Name" required error={errors.companyName}>
                 <TextInput value={form.companyName} onChange={up('companyName')} maxLength={75} error={errors.companyName} />
               </Field>
-              <Field label="Type of Company" required error={errors.typeOfCompany}>
-                <Select value={form.typeOfCompany} onChange={up('typeOfCompany')} options={COMPANY_TYPES} error={errors.typeOfCompany} />
-              </Field>
-              <Field label="NAIC Code" error={errors.naicCode}>
-                <TextInput value={form.naicCode} onChange={v => patch({ naicCode: digitsOnly(v, 5) })} maxLength={5} error={errors.naicCode} />
-              </Field>
               <Field label="Registered Trade Mark">
                 <TextInput value={form.registeredTradeMark} onChange={up('registeredTradeMark')} maxLength={75} />
+              </Field>
+              <Field label="Type of Company" required error={errors.typeOfCompany}>
+                <OptionSelect value={form.typeOfCompany} onChange={up('typeOfCompany')} options={COMPANY_TYPES} error={errors.typeOfCompany} />
+              </Field>
+              <Field label="NAIC Code" required error={errors.naicCode}>
+                <TextInput value={form.naicCode} onChange={v => patch({ naicCode: digitsOnly(v, 5) })} maxLength={5} placeholder="#####" error={errors.naicCode} />
+              </Field>
+              <Field label="Client Registration Date">
+                <TextInput value={client.clientRegistrationDate} onChange={() => {}} readOnly />
               </Field>
               <Field label="Domicile Country" required error={errors.domicileCountry}>
                 <Select value={form.domicileCountry} options={COUNTRIES} error={errors.domicileCountry}
@@ -818,6 +864,7 @@ function ClientInfoTab({ client, onRefresh, showToast }: {
         addressType="Legal"
         addr={client.legalAddress}
         onSave={handleSaveAddress}
+        onEditingChange={isEditing => setSectionEditing('legalAddress', isEditing)}
       />
       <AddressSection
         title="Mailing Address"
@@ -825,11 +872,13 @@ function ClientInfoTab({ client, onRefresh, showToast }: {
         addr={client.mailingAddress}
         legalAddr={client.legalAddress}
         onSave={handleSaveAddress}
+        onEditingChange={isEditing => setSectionEditing('mailingAddress', isEditing)}
       />
       <ContactSection
         contact={client.primaryContact}
         secondaryContacts={client.secondaryContacts ?? []}
         onSave={handleSaveContacts}
+        onEditingChange={isEditing => setSectionEditing('contacts', isEditing)}
       />
 
       <OfficeLocations offices={client.offices} onSave={handleSaveOffice} onDelete={handleDeleteOffice} />
@@ -1152,10 +1201,13 @@ function ProductsTab({ client }: { client: ClientDetail }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ClientManagementPage() {
+  const navigate = useNavigate();
   const [client, setClient] = useState<ClientDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'info' | 'companies' | 'products'>('info');
+  const [viewResetKey, setViewResetKey] = useState(0);
+  const [clientViewEditing, setClientViewEditing] = useState(false);
   const [companyDraftActive, setCompanyDraftActive] = useState(false);
   const [showCancelDraft, setShowCancelDraft] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -1173,6 +1225,26 @@ export default function ClientManagementPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const returnToModuleLanding = useCallback(() => {
+    setShowCancelDraft(false);
+    setCompanyDraftActive(false);
+    setActiveTab('info');
+    setClientViewEditing(false);
+    // The View screen and its Edit sections share this route. Remount the View
+    // content so every section exits Edit mode and discards unsaved local state.
+    setViewResetKey(current => current + 1);
+    navigate('/client-management', { replace: true });
+    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [navigate]);
+
+  const handleBack = () => {
+    if (activeTab === 'info' && !clientViewEditing) {
+      navigate('/dashboard');
+      return;
+    }
+    returnToModuleLanding();
+  };
 
   const TABS = [
     { key: 'info' as const, label: 'Client Information' },
@@ -1209,13 +1281,13 @@ export default function ClientManagementPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'info' && <ClientInfoTab client={client} onRefresh={load} showToast={showToast} />}
+      {activeTab === 'info' && <ClientInfoTab key={viewResetKey} client={client} onRefresh={load} showToast={showToast} onEditingChange={setClientViewEditing} />}
       {activeTab === 'companies' && <ClientCompanyInformation client={client} refresh={load} toast={showToast} onDraftStateChange={setCompanyDraftActive} />}
       {activeTab === 'products' && <ClientCompanyProducts client={client} toast={showToast} />}
 
       {/* Fixed footer with Back */}
       <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, height: 52, background: '#fff', boxShadow: '0 -2px 8px rgba(15,23,42,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 28px', zIndex: 35 }}>
-        <button onClick={() => companyDraftActive && activeTab === 'companies' ? setShowCancelDraft(true) : window.history.back()} style={btnSecondary}>Back</button>
+        <button onClick={() => companyDraftActive && activeTab === 'companies' ? setShowCancelDraft(true) : handleBack()} style={btnSecondary}>Back</button>
       </div>
 
       {showCancelDraft && <div style={{ position: 'fixed', inset: 0, zIndex: 1500, background: 'rgba(0,0,0,.28)', display: 'grid', placeItems: 'center' }}>
@@ -1224,7 +1296,7 @@ export default function ClientManagementPage() {
           <strong id="cancel-company-title" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>Are you sure you want to cancel this?</strong>
           <p style={{ margin: '0 0 12px', color: '#586273', fontSize: 10, lineHeight: 1.45 }}>Please confirm if you want to cancel your<br />current transactions. As your data is not saved?</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <button type="button" onClick={() => window.history.back()} style={{ height: 28, border: 0, borderRadius: 3, background: '#0B5AA0', color: '#fff', fontSize: 11, fontWeight: 600 }}>Continue</button>
+            <button type="button" onClick={returnToModuleLanding} style={{ height: 28, border: 0, borderRadius: 3, background: '#0B5AA0', color: '#fff', fontSize: 11, fontWeight: 600 }}>Continue</button>
             <button type="button" onClick={() => setShowCancelDraft(false)} style={{ height: 28, border: '1px solid #d8dee6', borderRadius: 3, background: '#fff', color: '#0B5AA0', fontSize: 11 }}>Cancel</button>
           </div>
         </div>

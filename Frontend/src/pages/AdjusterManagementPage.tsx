@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { adjustersApi } from '../api/adjusters';
 import PaginationBar from '../components/PaginationBar';
 import type { TempAdjusterDto } from '../types/Adjuster';
+import { useSessionState } from '../hooks/useSessionState';
+import { formatPhoneView } from '../utils/fieldValidation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,7 +62,7 @@ function getCellValue(row: TempAdjusterDto, key: ColKey): string {
     case 'fullName':              return getRowFullName(row);
     case 'adjusterType':          return row.adjusterType ?? '-';
     case 'status':                return row.status ?? 'Active';
-    case 'telephoneNumber':       return row.telephoneNumber ?? '-';
+    case 'telephoneNumber':       return formatPhoneView(row.telephoneNumber) || '-';
     case 'emailId':               return row.emailId ?? '-';
     case 'territoriesAssigned':   return row.territoriesAssigned ?? '-';
     case 'currentCaseLoad':       return '0';
@@ -178,7 +180,7 @@ function FilterPopup({ anchorRect, colKey: _colKey, allValues, applied, onApply,
   allValues: string[]; applied: AppliedFilters | undefined;
   onApply: (f: AppliedFilters) => void; onCancel: () => void; onClear: () => void;
 }) {
-  const [tab, setTab] = useState<'condition' | 'value'>('value');
+  const [tab, setTab] = useState<'condition' | 'value'>(applied?.condition ? 'condition' : 'value');
 
   // Value tab state
   const [valSearch, setValSearch] = useState('');
@@ -286,7 +288,7 @@ export default function AdjusterManagementPage() {
   const [colPanelRect,    setColPanelRect]    = useState<DOMRect | null>(null);
   const [activeFilter,    setActiveFilter]    = useState<ColKey | null>(null);
   const [filterRect,      setFilterRect]      = useState<DOMRect | null>(null);
-  const [columnFilters,   setColumnFilters]   = useState<Record<string, AppliedFilters>>({});
+  const [columnFilters, setColumnFilters] = useSessionState<Record<string, AppliedFilters>>('grid-filters:adjusters', {});
 
   useEffect(() => {
     adjustersApi.getAll().then(setAdjusters).catch(() => setError('Unable to load adjusters.'));

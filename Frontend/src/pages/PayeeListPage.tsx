@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PaginationBar from '../components/PaginationBar';
 import { payeesApi, type PayeeListItemDto, type PayeeKpiDto } from '../api/payees';
+import { useSessionState } from '../hooks/useSessionState';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ColKey = 'payeeName' | 'payeeType' | 'claimId' | 'policyId' | 'paymentMethod' | 'complianceCheck' | 'dateOfLoss' | 'lossType' | 'amount' | 'status';
@@ -161,7 +162,7 @@ function FilterPopup({ anchorRect, colKey: _colKey, allValues, applied, onApply,
   onCancel: () => void;
   onClear: () => void;
 }) {
-  const [tab, setTab] = useState<'condition' | 'value'>('value');
+  const [tab, setTab] = useState<'condition' | 'value'>(applied?.condition ? 'condition' : 'value');
   const [valSearch, setValSearch] = useState('');
   const [selected, setSelected] = useState<string[]>(applied?.value ?? allValues);
   const [cond1, setCond1] = useState(applied?.condition?.cond1 ?? '(not set)');
@@ -262,7 +263,7 @@ export default function PayeeListPage() {
   const [colPanelRect,  setColPanelRect]  = useState<DOMRect | null>(null);
   const [activeFilter,  setActiveFilter]  = useState<ColKey | null>(null);
   const [filterRect,    setFilterRect]    = useState<DOMRect | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, AppliedFilters>>({});
+  const [columnFilters, setColumnFilters] = useSessionState<Record<string, AppliedFilters>>('grid-filters:payees', {});
 
   useEffect(() => {
     Promise.all([payeesApi.getList(), payeesApi.getKpi()])

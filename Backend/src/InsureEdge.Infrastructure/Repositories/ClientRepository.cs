@@ -143,6 +143,15 @@ public class ClientRepository(InsureEdgeDbContext db) : IClientRepository
     // ── Address ────────────────────────────────────────────────────────────────
     public async Task SaveAddressAsync(long clientId, SaveAddressRequest req, long userId)
     {
+        req = ClientValidator.NormalizeAddress(req);
+        if (req.IsSameAsLegal)
+        {
+            var legal = await db.ClientAddresses
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.ClientId == clientId && a.AddressType == ClientValidator.LegalAddressType);
+            if (ClientValidator.ValidateSameAsLegal(req, MapAddress(legal)) is { } error)
+                throw new ArgumentException(error);
+        }
         var addr = await db.ClientAddresses
             .FirstOrDefaultAsync(a => a.ClientId == clientId && a.AddressType == req.AddressType);
 
@@ -402,6 +411,15 @@ public class ClientRepository(InsureEdgeDbContext db) : IClientRepository
 
     private async Task SaveCompanyAddressInternalAsync(long companyId, SaveAddressRequest req)
     {
+        req = ClientValidator.NormalizeAddress(req);
+        if (req.IsSameAsLegal)
+        {
+            var legal = await db.CompanyAddresses
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.CompanyId == companyId && a.AddressType == ClientValidator.LegalAddressType);
+            if (ClientValidator.ValidateSameAsLegal(req, MapCompanyAddress(legal)) is { } error)
+                throw new ArgumentException(error);
+        }
         var addr = await db.CompanyAddresses
             .FirstOrDefaultAsync(a => a.CompanyId == companyId && a.AddressType == req.AddressType);
 
@@ -421,6 +439,7 @@ public class ClientRepository(InsureEdgeDbContext db) : IClientRepository
         addr.Latitude = req.Latitude;
         addr.Longitude = req.Longitude;
         addr.IsManual = req.IsManual;
+        addr.IsSameAsLegal = req.AddressType == ClientValidator.MailingAddressType && req.IsSameAsLegal;
         await db.SaveChangesAsync();
     }
 
@@ -573,15 +592,9 @@ public class ClientRepository(InsureEdgeDbContext db) : IClientRepository
         a.Id, a.AddressType, a.AddressLine1, a.AddressLine2,
         a.Country, a.State, a.City, a.County, a.ZipCode, a.Latitude, a.Longitude, a.IsManual, a.IsSameAsLegal);
 
-    private static AddressDto? MapCompanyAddress(CompanyAddress? a, bool isSameAsLegal = false) => a == null ? null : new AddressDto(
+    private static AddressDto? MapCompanyAddress(CompanyAddress? a) => a == null ? null : new AddressDto(
         a.Id, a.AddressType, a.AddressLine1, a.AddressLine2,
-        a.Country, a.State, a.City, a.County, a.ZipCode, a.Latitude, a.Longitude, a.IsManual, isSameAsLegal);
-
-    private static bool SameAddress(CompanyAddress? left, CompanyAddress? right) => left != null && right != null
-        && left.AddressLine1 == right.AddressLine1 && left.AddressLine2 == right.AddressLine2
-        && left.Country == right.Country && left.State == right.State && left.City == right.City
-        && left.County == right.County && left.ZipCode == right.ZipCode
-        && left.Latitude == right.Latitude && left.Longitude == right.Longitude;
+        a.Country, a.State, a.City, a.County, a.ZipCode, a.Latitude, a.Longitude, a.IsManual, a.IsSameAsLegal);
 
     private static ContactDto? MapContact(ClientContact? c) => c == null ? null : new ContactDto(
         c.Id, c.ContactType, c.Name, c.Suffix, c.Title, c.EmailId,
@@ -621,7 +634,7 @@ public class ClientRepository(InsureEdgeDbContext db) : IClientRepository
             co.LogoData != null ? Convert.ToBase64String(co.LogoData) : null,
             co.LogoContentType,
             MapCompanyAddress(legal),
-            MapCompanyAddress(mailing, SameAddress(legal, mailing)),
+            MapCompanyAddress(mailing),
             MapCompanyContact(contact),
             secondary,
             co.CreatedOn.ToString("MM-dd-yyyy"),

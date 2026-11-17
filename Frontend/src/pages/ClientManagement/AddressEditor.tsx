@@ -53,6 +53,7 @@ export function AddressEditor({ value, onChange, errors = {}, disabled }: {
         patch.state = '';
         if (next === CANADA) patch.county = '';
       }
+      if (field === 'county' && prev.country === CANADA) patch.county = '';
       if (field === 'zipCode') patch.zipCode = prev.country === CANADA
         ? String(next).toUpperCase()
         : formatUsZipInput(String(next));
@@ -96,6 +97,7 @@ export function AddressEditor({ value, onChange, errors = {}, disabled }: {
       stateLabel={stateLabel(value.country)}
       zipLabel={zipLabel(value.country)}
       maxLengths={MAX_LENGTHS}
+      coordinatesReadOnly={false}
       trailingColumns={3}
     />
     {confirmManualOff && <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(0,0,0,.25)', display: 'grid', placeItems: 'center' }}>

@@ -6,7 +6,7 @@ import PhoneCountrySelect, { PHONE_COUNTRY_CA, PHONE_COUNTRY_US } from '../../co
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import type { ContactDto, SaveContactRequest } from '../../types/ClientManagement';
 import {
-  type Errors, digitsOnly, formatPhone, isContactEmpty, normalizeNorthAmericanPhone, pickErrors, validateContact,
+  type Errors, digitsOnly, formatPhone, formatPhoneView, isContactEmpty, normalizeNorthAmericanPhone, pickErrors, validateContact,
 } from './validation';
 
 // ── Field shell ────────────────────────────────────────────────────────────────
@@ -59,8 +59,33 @@ export function Select({ value, onChange, options, disabled, error }: {
   const opts = options.map(o => ({ value: o, label: o }));
   return (
     <div className={error ? 'ph-wrap--err' : undefined} style={error ? { border: '1px solid', borderRadius: 4 } : undefined}>
-      <SearchableSelect value={value ?? ''} onChange={onChange} options={opts} placeholder="Select..." clearable disabled={disabled} />
+      <SearchableSelect
+        value={value ?? ''}
+        onChange={onChange}
+        options={opts}
+        placeholder="Select..."
+        clearable
+        disabled={disabled}
+        appearance="user-reference"
+      />
     </div>
+  );
+}
+
+export function OptionSelect({ value, onChange, options, disabled, error }: {
+  value?: string; onChange: (v: string) => void; options: readonly string[]; disabled?: boolean; error?: string;
+}) {
+  return (
+    <select
+      className={inputClass(error, disabled)}
+      value={value ?? ''}
+      onChange={event => onChange(event.target.value)}
+      disabled={disabled}
+      style={{ width: '100%', boxSizing: 'border-box' }}
+    >
+      <option value="">Select...</option>
+      {options.map(option => <option key={option} value={option}>{option}</option>)}
+    </select>
   );
 }
 
@@ -115,12 +140,17 @@ export function MultiSelect({ value, onChange, options, disabled }: {
 export const PHONE_CC_US = '+1';
 export const PHONE_CC_CA = 'CA +1';
 export const formatPhoneWithFlag = (phone?: string | null, cc?: string | null) =>
-  phone ? `+1 ${formatPhone(phone)}` : undefined;
+  phone ? formatPhoneView(phone) : undefined;
 
 export function PhoneInput({ value, cc, onChange, onCcChange, error, disabled }: {
   value?: string; cc?: string; onChange: (v: string) => void; onCcChange: (cc: string) => void; error?: string; disabled?: boolean;
 }) {
   const selectedCc = cc === PHONE_CC_CA ? PHONE_CC_CA : PHONE_CC_US;
+
+  if (disabled) {
+    return <input className="ph-input fi fi--disabled" type="tel" value={formatPhoneView(value)} disabled
+      aria-label="Phone number" style={{ width: '100%' }} />;
+  }
 
   return (
     <div className={`ph-wrap${error ? ' ph-wrap--err' : ''}`}>
@@ -147,18 +177,53 @@ export function ExtensionInput({ value, onChange, error, disabled }: {
 export function ConfirmModal({ kind, onConfirm, onCancel }: {
   kind: 'delete' | 'cancel'; onConfirm: () => void; onCancel: () => void;
 }) {
-  const text = kind === 'delete'
-    ? 'Are you sure you want to delete this? This Action cannot be undone. Please confirm if you want to proceed.'
-    : 'Are you sure you want to cancel this? Please confirm if you want to cancel your current transactions. As your data is not saved.';
+  if (kind === 'delete') {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.26)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-confirmation-title"
+          aria-describedby="delete-confirmation-description"
+          style={{ width: 250, maxWidth: 'calc(100vw - 32px)', background: '#fff', border: '1px solid #d8dee6', borderRadius: 7, boxShadow: '0 4px 10px rgba(0,0,0,0.14)', overflow: 'hidden', textAlign: 'center' }}
+        >
+          <div style={{ padding: '12px 13px 15px' }}>
+            <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: '50%', background: '#fde4e8', color: '#ef3340', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg aria-hidden="true" width="29" height="34" viewBox="0 0 29 34" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M6.5 9.5h16l-1.2 21H7.7l-1.2-21Z" />
+                <path d="M4 9.5h21M10.5 9.5V5.8h8v3.7M11.2 13.5v13M14.5 13.5v13M17.8 13.5v13" />
+              </svg>
+            </div>
+            <div id="delete-confirmation-title" style={{ color: '#20242a', fontSize: 12, lineHeight: 1.4, fontWeight: 700, marginBottom: 6 }}>
+              Are you sure you want to delete this?
+            </div>
+            <div id="delete-confirmation-description" style={{ maxWidth: 212, margin: '0 auto', color: '#59616c', fontSize: 11, lineHeight: 1.45 }}>
+              This Action cannot be undone. Please confirm if<br />you want to proceed
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid #d8dee6', padding: '6px 12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <button type="button" onClick={onCancel} style={{ height: 28, background: '#fff', color: '#0B5AA0', border: '1px solid #cfd6de', borderRadius: 3, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              No, Keep It
+            </button>
+            <button type="button" onClick={onConfirm} style={{ height: 28, background: '#e8404f', color: '#fff', border: '1px solid #e8404f', borderRadius: 3, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+              Yes, Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const text = 'Are you sure you want to cancel this? Please confirm if you want to cancel your current transactions. As your data is not saved.';
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 8, padding: 28, width: 420, textAlign: 'center', border: '1px solid #d8dee6' }}>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, color: '#111827' }}>{kind === 'delete' ? 'Delete' : 'Cancel'}</div>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10, color: '#111827' }}>Cancel</div>
         <div style={{ color: '#4b5563', fontSize: 13, marginBottom: 24, lineHeight: 1.5 }}>{text}</div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
           <button type="button" onClick={onCancel} style={{ height: 34, padding: '0 16px', background: '#fff', color: '#0B5AA0', border: '1px solid #d8dee6', borderRadius: 3, fontSize: 13, cursor: 'pointer' }}>No, Keep It</button>
           <button type="button" onClick={onConfirm} style={{ height: 34, padding: '0 16px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 3, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            {kind === 'delete' ? 'Yes, Delete It' : 'Yes, Cancel It'}
+            Yes, Cancel It
           </button>
         </div>
       </div>

@@ -170,6 +170,9 @@ public class BulkUploadService
         if (string.IsNullOrWhiteSpace(addressSameAsMailing))
             throw new InvalidOperationException("Address same as Mailing Address is required.");
 
+        ValidateAddressLengths("Mailing", Get(BulkUploadColumns.MailAddressLine1), Get(BulkUploadColumns.MailAddressLine2),
+            Get(BulkUploadColumns.MailCity), Get(BulkUploadColumns.MailCounty));
+
         // Conditional — only mandatory given the value of another column (per template's
         // Instructions sheet: purple/"Conditional" columns depend on a sibling column).
         if (isIndividual)
@@ -193,6 +196,8 @@ public class BulkUploadService
                 throw new InvalidOperationException("Risk City is required when Address same as Mailing Address is No.");
             if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.RiskState)))
                 throw new InvalidOperationException("Risk State is required when Address same as Mailing Address is No.");
+            ValidateAddressLengths("Risk", Get(BulkUploadColumns.RiskAddressLine1), Get(BulkUploadColumns.RiskAddressLine2),
+                Get(BulkUploadColumns.RiskCity), Get(BulkUploadColumns.RiskCounty));
         }
 
         // Coverage limits — Mandatory per template (columns Z..AM)
@@ -497,8 +502,11 @@ public class BulkUploadService
         Dictionary<string, object?> MortgageEntry(int id, int name, int loanNumber, int serviceCompany,
             int clientId, int lenderType, int loanType, int coveredAsset, int addressLine1, int addressLine2,
             int city, int county, int state, int zip, int longitude, int latitude, int telephone, int extension,
-            int altTelephone, int email) => new()
+            int altTelephone, int email)
         {
+            ValidateAddressLengths($"Mortgage {id}", Get(addressLine1), Get(addressLine2), Get(city), Get(county));
+            return new()
+            {
             ["id"] = id,
             ["name"] = Get(name),
             ["loanNumber"] = Get(loanNumber),
@@ -523,8 +531,9 @@ public class BulkUploadService
             ["county"] = Get(county),
             ["zip"] = Get(zip),
             ["latitude"] = Get(latitude),
-            ["longitude"] = Get(longitude),
-        };
+                ["longitude"] = Get(longitude),
+            };
+        }
 
         if (!string.IsNullOrWhiteSpace(Get(BulkUploadColumns.Mortgage1Name)))
         {
@@ -555,6 +564,14 @@ public class BulkUploadService
     }
 
     private static string? Norm(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static void ValidateAddressLengths(string prefix, string? addressLine1, string? addressLine2, string? city, string? county)
+    {
+        if ((addressLine1?.Length ?? 0) > 500) throw new InvalidOperationException($"{prefix} Address Line 1 cannot exceed 500 characters.");
+        if ((addressLine2?.Length ?? 0) > 500) throw new InvalidOperationException($"{prefix} Address Line 2 cannot exceed 500 characters.");
+        if ((city?.Length ?? 0) > 50) throw new InvalidOperationException($"{prefix} City cannot exceed 50 characters.");
+        if ((county?.Length ?? 0) > 50) throw new InvalidOperationException($"{prefix} County cannot exceed 50 characters.");
+    }
 
     // Reformats a plain number ("10000") into the comma-grouped string ("10,000") the
     // rating engine's lookup tables key on. Non-numeric values (e.g. "No Coverage") pass

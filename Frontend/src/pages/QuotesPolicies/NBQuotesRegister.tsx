@@ -8,6 +8,7 @@ import BulkUploadModal from './BulkUploadModal';
 import { ColPanel } from './GridHelpers';
 import type { NbQuoteListItemDto, NbQuotesKpiDto } from '../../types/Policy';
 import type { MyProfile } from '../../types/CurrentUser';
+import { useSessionState } from '../../hooks/useSessionState';
 
 // ── Column definitions (for Modify Columns Display) ───────────────────────────
 const COL_DEFS = [
@@ -79,6 +80,51 @@ function KpiStat({ label, value, color, icon, active, onClick }: {
       </div>
       <div className="kpi-stat-icon" style={{ color }}>{icon}</div>
     </div>
+  );
+}
+
+type QuoteKpiIconKind = 'uploaded' | 'approved' | 'notApproved' | 'expired';
+
+function QuoteKpiIcon({ kind }: { kind: QuoteKpiIconKind }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 40 40"
+      width="38"
+      height="38"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9.5 4.5h12l7 7v21h-19z" />
+      <path d="M21.5 4.5v7h7" />
+
+      {kind === 'uploaded' && (
+        <>
+          <path d="M19 26V15" />
+          <path d="m14.5 19.5 4.5-4.5 4.5 4.5" />
+          <path d="m23.5 28 3 3 5-5" />
+        </>
+      )}
+
+      {kind === 'approved' && <path d="m21.5 27.5 3.5 3.5 6-7" />}
+
+      {kind === 'notApproved' && (
+        <>
+          <path d="m22.5 24 8 8" />
+          <path d="m30.5 24-8 8" />
+        </>
+      )}
+
+      {kind === 'expired' && (
+        <>
+          <circle cx="26" cy="27" r="5.5" />
+          <path d="M26 23.5V27l2.5 1.5" />
+        </>
+      )}
+    </svg>
   );
 }
 
@@ -257,7 +303,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
   const [gridMsg, setGridMsg]       = useState('');
   const [search, setSearch]         = useState('');
   const [sort, setSort]             = useState<SortState | null>(null);
-  const [filters, setFilters]       = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>('grid-filters:quotes:new-business', {});
 
   // Column visibility
   const defaultCols = Object.fromEntries(COL_DEFS.map(c => [c.key, true])) as ColVisibility;
@@ -459,21 +505,21 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
 
       {/* ── KPI Stats Row ── */}
       <div className="kpi-stats-row">
-        <KpiStat label="Uploaded" value={kpis?.uploaded ?? 0} color="#1a3b6b" active={kpiFilter === null}
+        <KpiStat label="Uploaded" value={kpis?.uploaded ?? 0} color="#0097d7" active={kpiFilter === null}
           onClick={() => { setKpiFilter(null); setFilters({}); }}
-          icon={<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zM8 15h8v2H8zm0-4h8v2H8zm0-4h5v2H8z"/></svg>}
+          icon={<QuoteKpiIcon kind="uploaded" />}
         />
-        <KpiStat label="Approved" value={kpis?.approved ?? 0} color="#16a34a" active={kpiFilter === 'approved'}
+        <KpiStat label="Approved" value={kpis?.approved ?? 0} color="#45ad00" active={kpiFilter === 'approved'}
           onClick={() => setKpiFilter(p => p === 'approved' ? null : 'approved')}
-          icon={<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zm-9-4 3 3 6-6-1.4-1.4-4.6 4.6-1.6-1.6L9 14z"/></svg>}
+          icon={<QuoteKpiIcon kind="approved" />}
         />
-        <KpiStat label="Not Approved" value={kpis?.notApproved ?? 0} color="#dc2626" active={kpiFilter === 'notApproved'}
+        <KpiStat label="Not Approved" value={kpis?.notApproved ?? 0} color="#b0003a" active={kpiFilter === 'notApproved'}
           onClick={() => setKpiFilter(p => p === 'notApproved' ? null : 'notApproved')}
-          icon={<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zm-4.5-5 1.5 1.5 1.5-1.5 1.1 1.1-1.5 1.5 1.5 1.5-1.1 1.1L13 18.1l-1.5 1.5-1.1-1.1 1.5-1.5-1.5-1.5z"/></svg>}
+          icon={<QuoteKpiIcon kind="notApproved" />}
         />
-        <KpiStat label="Expired" value={kpis?.expired ?? 0} color="#d97706" active={kpiFilter === 'expired'}
+        <KpiStat label="Expired" value={kpis?.expired ?? 0} color="#b0003a" active={kpiFilter === 'expired'}
           onClick={() => setKpiFilter(p => p === 'expired' ? null : 'expired')}
-          icon={<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zm-5-3c-2.2 0-4-1.8-4-4s1.8-4 4-4 4 1.8 4 4-1.8 4-4 4zm.5-6.5h-1v3l2.2 1.3.5-.9-1.7-1z"/></svg>}
+          icon={<QuoteKpiIcon kind="expired" />}
         />
       </div>
 
@@ -644,7 +690,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
         </div>
 
         {/* ── Footer ── */}
-        <div className="table-footer">
+        {showPagination(total) && <div className="table-footer">
           <div className="footer-info">
             Showing&nbsp;
             <select
@@ -657,8 +703,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
             </select>
             &nbsp;records from&nbsp;<strong>{total.toLocaleString()}</strong>&nbsp;Results
           </div>
-          {/* QP-05: pagination only with 10 or more records. */}
-          <div className="pagination" style={showPagination(total) ? undefined : { display: 'none' }}>
+          <div className="pagination">
             <button className="page-btn" disabled={page <= 1} onClick={() => setPage(1)}>«</button>
             <button className="page-btn" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>‹</button>
             {pageNums().map((n, idx) =>
@@ -669,7 +714,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
             <button className="page-btn" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>›</button>
             <button className="page-btn" disabled={page >= totalPages} onClick={() => setPage(totalPages)}>»</button>
           </div>
-        </div>
+        </div>}
       </div>
 
       {/* ── Filter popup rendered at document level (bypasses all overflow) ── */}

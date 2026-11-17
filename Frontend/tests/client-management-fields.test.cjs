@@ -86,6 +86,9 @@ test('North American telephone values normalize and format without duplicating +
   assert.equal(fields.isValidPhone('+1 (740) 283-3333'), true);
   assert.equal(fields.isValidPhone('740283333'), false);
   assert.equal(fields.isValidPhone('+12 740 283-3333'), false);
+  assert.equal(fields.formatPhoneView('2387684627'), '+1 (238) 768-4627');
+  assert.equal(fields.formatPhoneView('+1 (238) 768-4627'), '+1 (238) 768-4627');
+  assert.equal(fields.formatPhoneView(''), '');
 });
 
 test('US ZIP Code input is limited and formatted as ZIP+4', () => {
@@ -111,6 +114,32 @@ test('Year Business Started remains optional and validates a selected four-digit
   assert.equal(validation.validateClientInfo(base, true).yearBusinessStarted, undefined);
   assert.equal(validation.validateClientInfo({ ...base, yearBusinessStarted: '1993' }, true).yearBusinessStarted, undefined);
   assert.ok(validation.validateClientInfo({ ...base, yearBusinessStarted: '1599' }, true).yearBusinessStarted);
+});
+
+test('NAIC Code is mandatory and must contain exactly five digits', () => {
+  const base = {
+    companyName: 'Hudson Bailey Insurance', typeOfCompany: 'MGA', domicileCountry: 'United States',
+    stateOfDomicile: 'Alabama', federalTaxId: '23-4567890',
+  };
+  assert.equal(validation.validateClientInfo(base, true).naicCode, 'Provide NAIC Code to continue');
+  assert.equal(validation.validateClientInfo({ ...base, naicCode: '1234' }, true).naicCode, 'Provide valid NAIC Code to continue');
+  assert.equal(validation.validateClientInfo({ ...base, naicCode: '12345' }, true).naicCode, undefined);
+});
+
+test('Client logo validation reports format and size failures separately', () => {
+  assert.equal(
+    validation.validateClientLogoFile({ type: 'application/pdf', size: 10 * 1024 }),
+    'Please upload file based on the criteria listed',
+  );
+  assert.equal(
+    validation.validateClientLogoFile({ type: 'image/png', size: (10 * 1024) - 1 }),
+    'File size is too small',
+  );
+  assert.equal(
+    validation.validateClientLogoFile({ type: 'image/jpeg', size: (10 * 1024 * 1024) + 1 }),
+    'File size is too large',
+  );
+  assert.equal(validation.validateClientLogoFile({ type: 'image/gif', size: 10 * 1024 }), undefined);
 });
 
 test('Business Description is optional and enforces 5 to 1000 trimmed characters when populated', () => {

@@ -1,5 +1,6 @@
 ﻿using InsureEdge.Application.DTOs.Adjuster;
 using InsureEdge.Application.Services;
+using InsureEdge.Application.Validation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -27,6 +28,8 @@ public class AdjustersController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] UpsertTempAdjusterRequest req)
     {
+        if (UserValidator.PhonesMatch(req.TelephoneNumber, req.AlternativeTelephoneNumber))
+            return BadRequest(new { errors = UserValidator.PhonePairErrors() });
         var result = await _adjusters.CreateAsync(req);
         return Ok(result);
     }
@@ -34,6 +37,8 @@ public class AdjustersController : ControllerBase
     [HttpPut("{id:long}")]
     public async Task<IActionResult> Update(long id, [FromBody] UpsertTempAdjusterRequest req)
     {
+        if (UserValidator.PhonesMatch(req.TelephoneNumber, req.AlternativeTelephoneNumber))
+            return BadRequest(new { errors = UserValidator.PhonePairErrors() });
         try
         {
             return Ok(await _adjusters.UpdateAsync(id, req));

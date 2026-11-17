@@ -8,6 +8,7 @@ using InsureEdge.Application.Validation;
 using InsureEdge.Domain.Entities;
 using InsureEdge.Domain.Enums;
 using InsureEdge.Infrastructure.Data;
+using InsureEdge.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -29,12 +30,18 @@ public class DistributionController : ControllerBase
     private readonly InsureEdgeDbContext _db;
     private readonly ICurrentTenantService _tenant;
     private readonly ProducerDraftIds _draftIds;
+    private readonly IntermediaryService _intermediaryService;
 
-    public DistributionController(InsureEdgeDbContext db, ICurrentTenantService tenant, ProducerDraftIds draftIds)
+    public DistributionController(
+        InsureEdgeDbContext db,
+        ICurrentTenantService tenant,
+        ProducerDraftIds draftIds,
+        IntermediaryService intermediaryService)
     {
         _db = db;
         _tenant = tenant;
         _draftIds = draftIds;
+        _intermediaryService = intermediaryService;
     }
 
     [HttpGet("intermediaries")]
@@ -94,6 +101,9 @@ public class DistributionController : ControllerBase
         }
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
+
+        if (!string.IsNullOrWhiteSpace(intermediary.CommissionDisburseEmail))
+            await _intermediaryService.SendDisburseCloudRegistrationEmailAsync(intermediary);
 
         return Ok(ToIntermediaryResponse(intermediary));
     }
@@ -158,6 +168,8 @@ public class DistributionController : ControllerBase
     [HttpPost("producers")]
     public async Task<IActionResult> CreateProducer([FromBody] UpsertProducerRequest request)
     {
+        if (UserValidator.PhonesMatch(request.TelephoneNumber, request.AltTelephoneNumber))
+            return BadRequest(new { errors = UserValidator.PhonePairErrors() });
         var clientId = _tenant.ClientId;
         var intermediaryExists = await _db.Intermediaries.AnyAsync(i => i.Id == request.IntermediaryId && i.ClientId == clientId);
         if (!intermediaryExists) return BadRequest(new { error = "Intermediary not found." });
@@ -230,6 +242,8 @@ public class DistributionController : ControllerBase
     [HttpPut("producers/{id:long}")]
     public async Task<IActionResult> UpdateProducer(long id, [FromBody] UpsertProducerRequest request)
     {
+        if (UserValidator.PhonesMatch(request.TelephoneNumber, request.AltTelephoneNumber))
+            return BadRequest(new { errors = UserValidator.PhonePairErrors() });
         var producer = await FindProducer(id);
         if (producer == null) return NotFound();
 

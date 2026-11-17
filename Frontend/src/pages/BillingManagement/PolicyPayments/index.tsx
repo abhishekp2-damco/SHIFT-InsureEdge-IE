@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { billingApi } from '../../../api/distribution';
+import { showPagination } from '../../../utils/fieldValidation';
+import { useSessionState } from '../../../hooks/useSessionState';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -361,7 +363,7 @@ export default function PolicyPaymentsPage({ onPolicyViewed }: { onPolicyViewed:
   const [cond,           setCond]           = useState<CondState>(EMPTY_COND);
   const [vPending,       setVPending]       = useState<string[]>([]);
   const [vSearch,        setVSearch]        = useState('');
-  const [appliedFilters, setAppliedFilters] = useState<Record<string, ColFilter>>({});
+  const [appliedFilters, setAppliedFilters] = useSessionState<Record<string, ColFilter>>('grid-filters:billing:policy-payments', {});
   const [sortCol,        setSortCol]        = useState('');
   const [sortDir,        setSortDir]        = useState<'asc' | 'desc'>('asc');
   const [page,           setPage]           = useState(1);
@@ -613,7 +615,7 @@ export default function PolicyPaymentsPage({ onPolicyViewed }: { onPolicyViewed:
       }
 
       {/* Pagination */}
-      {!loading && pageRows.length > 0 && (
+      {!loading && showPagination(totalCount) && (
         <div className="pager-bar">
           <div className="pager-bar__left">
             <span>Showing</span>

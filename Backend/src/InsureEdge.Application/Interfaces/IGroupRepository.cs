@@ -16,6 +16,8 @@ public interface IGroupRepository
 
     Task<Group> CreateAsync(Group group, List<long> memberIds, List<ScreenPermissionSaveDto> permissions);
 
+    Task<HashSet<long>> GetActiveUserIdsAsync(long clientId, IReadOnlyCollection<long> userIds);
+
     Task UpdateInfoAsync(long id, UpdateGroupInfoRequest req, long clientId, long updatedBy);
 
     // BR-005/ADR-004: Full-replace sync. Privilege revocation is synchronous — deleting

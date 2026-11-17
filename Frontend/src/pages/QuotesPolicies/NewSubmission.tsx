@@ -204,7 +204,7 @@ interface FormState {
   paymentFrequency: string; responsibleParty: string;
   lockSubmission: boolean;
   policyInsuranceType: string; policyType: string;
-  policyNumber: string; quoteNumber: string; recordStatus: string;
+  policyNumber: string; quoteNumber: string; recordStatus: string; approvalStatus: string;
   lob: string; subProduct: string; endorsementEffectiveDate: string; renewalOfferDate: string; priorPolicyNumber: string;
   screenCode: string;
   isHBProducer: boolean;
@@ -243,7 +243,7 @@ const defaultForm: FormState = {
   dwellingLimit: '', appurtenantLimit: '', personalAssetsLimit: '',
   occupancyDisruptionLimit: '',
   deductible: '5,000', coverageLevel: 'Basic', liabilityAmount: '300,000',
-  excessBlanketLiabilities: 'No Coverage', sinkhole: 'Non-Transferred', earthquake: 'None',
+  excessBlanketLiabilities: 'No Coverage', sinkhole: 'No', earthquake: 'None',
   flood: 'None', windHail: 'Non-Transferred', wildfire: 'Non-Transferred',
   resWorkerMedical: 'No', farmingEndorsement: 'No', landlordEndorsement: 'No', homeOfficeEndorsement: 'No',
   priorPolicyPremium: '0', basePremium: '0', rateModification: '0',
@@ -252,7 +252,7 @@ const defaultForm: FormState = {
   paymentFrequency: '', responsibleParty: '',
   lockSubmission: false,
   policyInsuranceType: '2', policyType: 'NEWBUSINESS',
-  policyNumber: '', quoteNumber: '', recordStatus: 'Draft',
+  policyNumber: '', quoteNumber: '', recordStatus: 'Draft', approvalStatus: '',
   lob: 'E&S Homeowners', subProduct: 'SuperPerils', endorsementEffectiveDate: '', renewalOfferDate: '', priorPolicyNumber: '',
   screenCode: 'NEWBUSINESSINDIVIDUAL',
   isHBProducer: false,
@@ -272,6 +272,12 @@ const defaultForm: FormState = {
 // whose default is a boolean back to a real boolean on hydrate.
 function coerceFormBooleans(f: FormState): FormState {
   const out: any = { ...f };
+  // Apply UI limits to values restored from saved drafts as well.
+  out.organizationName = String(out.organizationName ?? '').slice(0, fv.ORG_NAME_MAX);
+  out.doingBusinessAs = String(out.doingBusinessAs ?? '').slice(0, fv.ORG_NAME_MAX);
+  out.firstName = fv.sanitizePolicyPersonName(String(out.firstName ?? ''));
+  out.middleName = fv.sanitizePolicyPersonName(String(out.middleName ?? ''));
+  out.lastName = fv.sanitizePolicyPersonName(String(out.lastName ?? ''));
   const toBool = (v: any, fallback: boolean | null) =>
     v === true || v === 'true' || v === 'Yes' ? true
       : v === false || v === 'false' || v === 'No' ? false
@@ -306,11 +312,20 @@ function Field({ label, required, children }: { label: React.ReactNode; required
   );
 }
 
-function Input({ value, onChange, disabled, placeholder, type = 'text', hasError }: {
-  value: string; onChange?: (v: string) => void; disabled?: boolean; placeholder?: string; type?: string; hasError?: boolean;
+function Input({ value, onChange, disabled, placeholder, type = 'text', hasError, maxLength, normalize }: {
+  value: string; onChange?: (v: string) => void; disabled?: boolean; placeholder?: string; type?: string; hasError?: boolean; maxLength?: number; normalize?: (v: string) => string;
 }) {
-  return <input type={type} value={value} onChange={e => onChange?.(e.target.value)} disabled={disabled} placeholder={placeholder}
-    style={hasError ? { borderColor: '#dc2626' } : undefined} />;
+  const normalizeValue = (next: string) => {
+    const normalized = normalize ? normalize(next) : next;
+    return maxLength === undefined ? normalized : normalized.slice(0, maxLength);
+  };
+  return <input type={type} value={normalizeValue(value)}
+    onInput={e => {
+      e.currentTarget.value = normalizeValue(e.currentTarget.value);
+    }}
+    onChange={e => onChange?.(normalizeValue(e.target.value))}
+    disabled={disabled} placeholder={placeholder}
+    maxLength={maxLength} style={hasError ? { borderColor: '#dc2626' } : undefined} />;
 }
 
 function FSelect({ value, onChange, options, disabled, placeholder = 'Select...' }: { value: string; onChange: (v: string) => void; options: string[]; disabled?: boolean; placeholder?: string }) {
@@ -600,6 +615,17 @@ function booleanValue(value: unknown) {
   return Boolean(value);
 }
 
+function isManualNewBusinessAwaitingApproval(form: FormState) {
+  const code = String(form.screenCode || form.policyType || '').trim().toUpperCase();
+  if (!code.startsWith('NEWBUSINESS') || booleanValue(form.isBulkUploaded)) return false;
+
+  // Approval can arrive through the relational policy approval result or through the
+  // legacy HexCat callback. Accept either source so an approved quote is never stranded.
+  const approvalValues = [form.approvalStatus, form.hexCatStatus, form.recordStatus]
+    .map(value => String(value || '').trim().toUpperCase());
+  return !approvalValues.includes('APPROVED');
+}
+
 function numberValue(value: unknown) {
   const n = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? n : 0;
@@ -682,7 +708,10 @@ function applyPlanScenarioDefaults(form: FormState): FormState {
   merged.coverageLevel = planSelection;
   merged.windHail = normalizedOption(merged.windHail, flow === 'newBusiness' ? 'Non-Transferred' : 'Non-Transferred');
   merged.wildfire = normalizedOption(merged.wildfire, flow === 'newBusiness' ? 'Included' : 'Non-Transferred');
-  merged.sinkhole = normalizedOption(merged.sinkhole, flow === 'newBusiness' ? 'Non-Transferred' : 'Yes');
+  merged.sinkhole = normalizedOption(merged.sinkhole, flow === 'newBusiness' ? 'No' : 'Yes');
+  if (merged.sinkhole === 'Non-Transferred') merged.sinkhole = 'No';
+  if (merged.earthquake === 'Non-Transferred') merged.earthquake = 'None';
+  if (merged.flood === 'Non-Transferred') merged.flood = 'None';
   merged.totalInsuredValues = valueOrFallback(merged.totalInsuredValues, formatNumberValue(totalInsuredValue(merged)));
   return merged;
 }
@@ -1075,11 +1104,11 @@ function LocationModal({ title, initial, onSave, onClose }: {
               <label>Google Address Search</label>
               <GoogleAddressAutocomplete onSelect={f => {
                 setLoc(l => ({ ...l,
-                  addressLine1: f.addressLine1,
-                  addressLine2: f.addressLine2 ?? '',
-                  city: f.city,
+                  addressLine1: f.addressLine1.slice(0, fv.ADDRESS_LINE_MAX),
+                  addressLine2: (f.addressLine2 ?? '').slice(0, fv.ADDRESS_LINE_MAX),
+                  city: f.city.slice(0, fv.CITY_MAX),
                   state: f.state,
-                  county: f.county,
+                  county: f.county.slice(0, fv.COUNTY_MAX),
                   zip: formatZipInput(f.zip),
                   country: f.country || 'United States',
                   latitude: f.latitude,
@@ -1092,8 +1121,8 @@ function LocationModal({ title, initial, onSave, onClose }: {
               <input type="checkbox" checked={manual} onChange={e => setManual(e.target.checked)} /> Enter Address Manually
             </label>
             <div className="source-address-grid source-address-two">
-              <Field label="Address Line 1" required><Input value={loc.addressLine1} onChange={v => setL('addressLine1', v)} disabled={addressDisabled} /></Field>
-              <Field label={<span>Address Line 2 <span className="source-info-icon" title="Address Line 2 can store additional information including: PO Box, Suite/Apartment Number, Community Name, etc.">(i)</span></span>}><Input value={loc.addressLine2} onChange={v => setL('addressLine2', v)} disabled={addressDisabled} /></Field>
+              <Field label="Address Line 1" required><Input value={loc.addressLine1} onChange={v => setL('addressLine1', v)} disabled={addressDisabled} maxLength={fv.ADDRESS_LINE_MAX} /></Field>
+              <Field label={<span>Address Line 2 <span className="source-info-icon" title="Address Line 2 can store additional information including: PO Box, Suite/Apartment Number, Community Name, etc.">(i)</span></span>}><Input value={loc.addressLine2} onChange={v => setL('addressLine2', v)} disabled={addressDisabled} maxLength={fv.ADDRESS_LINE_MAX} /></Field>
             </div>
             <div className="source-address-grid source-address-two location-error-row">
               <div>{errors.addressLine1 && <div className="field-error">{errors.addressLine1}</div>}</div><div />
@@ -1101,7 +1130,7 @@ function LocationModal({ title, initial, onSave, onClose }: {
             <div className="source-address-grid source-address-three">
               <Field label="Country" required><FSelect value={loc.country} onChange={v => { setL('country', v); setL('state', ''); }} options={['United States', 'Canada']} disabled={addressDisabled} /></Field>
               <Field label="State" required><FSelect value={loc.state} onChange={v => setL('state', v)} options={US_STATES} disabled={addressDisabled} /></Field>
-              <Field label="City" required><Input value={loc.city} onChange={v => setL('city', v)} disabled={addressDisabled} /></Field>
+              <Field label="City" required><Input value={loc.city} onChange={v => setL('city', v)} disabled={addressDisabled} maxLength={fv.CITY_MAX} /></Field>
             </div>
             <div className="source-address-grid source-address-three location-error-row">
               <div>{errors.country && <div className="field-error">{errors.country}</div>}</div>
@@ -1109,7 +1138,7 @@ function LocationModal({ title, initial, onSave, onClose }: {
               <div>{errors.city && <div className="field-error">{errors.city}</div>}</div>
             </div>
             <div className="source-address-grid source-address-two source-address-short">
-              <Field label="County" required><Input value={loc.county} onChange={v => setL('county', v)} disabled={addressDisabled} /></Field>
+              <Field label="County" required><Input value={loc.county} onChange={v => setL('county', v)} disabled={addressDisabled} maxLength={fv.COUNTY_MAX} /></Field>
               <Field label="Zip Code" required><Input value={loc.zip} onChange={v => setL('zip', v)} disabled={addressDisabled} /></Field>
             </div>
             <div className="source-address-grid source-address-two source-address-short location-error-row">
@@ -1164,7 +1193,7 @@ function phoneDialPrefix(country: string | null | undefined) {
 
 function mortgagePhoneDisplay(m: Pick<MortgageItem, 'telephone' | 'phoneCountry'>) {
   if (!m.telephone) return '';
-  return m.telephone.trim().startsWith('+') ? m.telephone : `${phoneDialPrefix(m.phoneCountry)} ${m.telephone}`;
+  return fv.formatPhoneView(m.telephone);
 }
 
 function mortgageAddressDisplay(m: Pick<MortgageItem, 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'country' | 'county' | 'zip'>) {
@@ -1233,9 +1262,17 @@ function MortgageModal({ mode, initial, onSave, onClose, onEdit }: {
     if (!next.zip.trim() || !isValidZipValue(next.zip)) e.zip = 'Provide valid Zip Code to continue';
     if (!next.telephone.trim()) e.telephone = 'Provide Telephone Number to continue';
     else if (!isValidPhoneValue(next.telephone)) e.telephone = 'Provide valid Telephone Number to continue';
+    if (next.altTelephone.trim() && !isValidPhoneValue(next.altTelephone)) e.altTelephone = 'Provide valid Alternative Telephone Number to continue';
+    fv.checkPhonesDiffer(e, 'telephone', 'altTelephone', next.telephone, next.altTelephone);
     if (!next.email.trim()) e.email = 'Provide Email ID to continue';
     else if (!isValidEmailValue(next.email)) e.email = 'Provide valid Email ID to continue';
     return e;
+  }
+
+  function validatePhoneOnBlur(field: 'telephone' | 'altTelephone') {
+    const pairErrors: MortgageValidationErrors = {};
+    fv.checkPhonesDiffer(pairErrors, 'telephone', 'altTelephone', m.telephone, m.altTelephone);
+    setErrors(previous => ({ ...previous, [field]: pairErrors[field] }));
   }
 
   function save() {
@@ -1249,12 +1286,12 @@ function MortgageModal({ mode, initial, onSave, onClose, onEdit }: {
     setM(x => ({
       ...x,
       googleAddress: [f.addressLine1, f.city, f.state, f.country].filter(Boolean).join(', '),
-      addressLine1: f.addressLine1,
-      addressLine2: f.addressLine2 || '',
+      addressLine1: f.addressLine1.slice(0, fv.ADDRESS_LINE_MAX),
+      addressLine2: (f.addressLine2 || '').slice(0, fv.ADDRESS_LINE_MAX),
       country: f.country || 'United States',
       state: f.state,
-      city: f.city,
-      county: f.county,
+      city: f.city.slice(0, fv.CITY_MAX),
+      county: f.county.slice(0, fv.COUNTY_MAX),
       zip: f.zip,
       latitude: f.latitude,
       longitude: f.longitude,
@@ -1304,7 +1341,7 @@ function MortgageModal({ mode, initial, onSave, onClose, onEdit }: {
                 <div className="mortgage-view-grid mortgage-view-contact-grid">
                   <MortgageViewRow label="Telephone Number" value={mortgagePhoneDisplay(m)} />
                   <MortgageViewRow label="Extension" value={m.extension} />
-                  <MortgageViewRow label="Alternative Telephone Number" value={m.altTelephone ? `${phoneDialPrefix(m.altPhoneCountry)} ${m.altTelephone}` : ''} />
+                  <MortgageViewRow label="Alternative Telephone Number" value={fv.formatPhoneView(m.altTelephone)} />
                   <MortgageViewRow label="Email ID" value={m.email} />
                 </div>
               </div>
@@ -1344,12 +1381,12 @@ function MortgageModal({ mode, initial, onSave, onClose, onEdit }: {
                   <Field label="Search Address"><GoogleAddressAutocomplete onSelect={applyGoogleAddress} disabled={manualEnabled} clearToken={addressClearToken} placeholder="Start typing in address" /></Field>
                   <label className="check-row mortgage-manual-check"><input type="checkbox" checked={m.manualAddress} onChange={e => toggleManual(e.target.checked)} /> Enter Address Manually</label>
                   <div className="form-grid-2 mortgage-address-grid">
-                    <Field label="Address Line 1" required><Input value={m.addressLine1} onChange={v => set('addressLine1', v)} disabled={!manualEnabled} /><MortgageFieldError message={errors.addressLine1} /></Field>
-                    <Field label={<>Address Line 2 <span className="info-dot">i</span></>}><Input value={m.addressLine2} onChange={v => set('addressLine2', v)} disabled={!manualEnabled} /></Field>
+                    <Field label="Address Line 1" required><Input value={m.addressLine1} onChange={v => set('addressLine1', v)} disabled={!manualEnabled} maxLength={fv.ADDRESS_LINE_MAX} /><MortgageFieldError message={errors.addressLine1} /></Field>
+                    <Field label={<>Address Line 2 <span className="info-dot">i</span></>}><Input value={m.addressLine2} onChange={v => set('addressLine2', v)} disabled={!manualEnabled} maxLength={fv.ADDRESS_LINE_MAX} /></Field>
                     <Field label="Country" required><FSelect value={m.country} onChange={v => set('country', v)} options={['United States', 'Canada']} disabled={!manualEnabled} /></Field>
                     <Field label="State" required><FSelect value={m.state} onChange={v => set('state', v)} options={ALL_STATES} disabled={!manualEnabled} placeholder="Select..." /><MortgageFieldError message={errors.state} /></Field>
-                    <Field label="City" required><Input value={m.city} onChange={v => set('city', v)} disabled={!manualEnabled} /><MortgageFieldError message={errors.city} /></Field>
-                    <Field label="County"><Input value={m.county} onChange={v => set('county', v)} disabled={!manualEnabled} /></Field>
+                    <Field label="City" required><Input value={m.city} onChange={v => set('city', v)} disabled={!manualEnabled} maxLength={fv.CITY_MAX} /><MortgageFieldError message={errors.city} /></Field>
+                    <Field label="County"><Input value={m.county} onChange={v => set('county', v)} disabled={!manualEnabled} maxLength={fv.COUNTY_MAX} /></Field>
                     <Field label="Zip Code" required><Input value={m.zip} onChange={v => set('zip', formatZipInput(v))} disabled={!manualEnabled} /><MortgageFieldError message={errors.zip} /></Field>
                     <Field label="Latitude"><Input value={m.latitude} onChange={v => set('latitude', v)} disabled={!manualEnabled} /></Field>
                     <Field label="Longitude"><Input value={m.longitude} onChange={v => set('longitude', v)} disabled={!manualEnabled} /></Field>
@@ -1361,18 +1398,19 @@ function MortgageModal({ mode, initial, onSave, onClose, onEdit }: {
             <div className="mortgage-contact-panel">
               <div className="mortgage-subtitle">Contact Information</div>
               <Field label="Telephone Number" required>
-                <div className="phone-input-wrap">
+                <div className={`phone-input-wrap${errors.telephone ? ' phone-input-wrap--error' : ''}`}>
                   <PhoneCountrySelect value={m.phoneCountry} onChange={v => set('phoneCountry', v)} />
-                  <input value={m.telephone} onChange={e => set('telephone', formatPhone(e.target.value))} placeholder="(###) ###-####" />
+                  <input value={m.telephone} onChange={e => set('telephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('telephone')} placeholder="(###) ###-####" />
                 </div>
-                <MortgageFieldError message={errors.telephone} />
+                {errors.telephone && <div className="field-error phone-validation-error">{errors.telephone}</div>}
               </Field>
               <Field label="Extension"><Input value={m.extension} onChange={v => set('extension', v)} /></Field>
               <Field label="Alternative Telephone Number">
-                <div className="phone-input-wrap">
+                <div className={`phone-input-wrap${errors.altTelephone ? ' phone-input-wrap--error' : ''}`}>
                   <PhoneCountrySelect value={m.altPhoneCountry} onChange={v => set('altPhoneCountry', v)} />
-                  <input value={m.altTelephone} onChange={e => set('altTelephone', formatPhone(e.target.value))} placeholder="(###) ###-####" />
+                  <input value={m.altTelephone} onChange={e => set('altTelephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('altTelephone')} placeholder="(###) ###-####" />
                 </div>
+                {errors.altTelephone && <div className="field-error phone-validation-error">{errors.altTelephone}</div>}
               </Field>
               <Field label="Email ID" required><Input value={m.email} onChange={v => set('email', v)} /><MortgageFieldError message={errors.email} /></Field>
             </div>
@@ -1458,6 +1496,12 @@ function NameInsuredModal({ title, initial, onSave, onClose, locked }: {
     fv.checkPhonesDiffer(errs, 'telephone', 'altTelephone', v.telephone, v.altTelephone);
     fv.checkEmail(errs, 'email', v.email);
     return errs;
+  }
+
+  function validatePhoneOnBlur(field: 'telephone' | 'altTelephone') {
+    const pairErrors: Record<string, string> = {};
+    fv.checkPhonesDiffer(pairErrors, 'telephone', 'altTelephone', vals.telephone, vals.altTelephone);
+    setErrors(previous => ({ ...previous, [field]: pairErrors[field] ?? '' }));
   }
 
   // After the first Save attempt, re-validate on every change so errors clear once valid.
@@ -1549,13 +1593,13 @@ function NameInsuredModal({ title, initial, onSave, onClose, locked }: {
           <div className="form-grid" style={{ marginTop: 12 }}>
             <div className="form-group">
               <label><span style={{ color: '#dc2626' }}>* </span>Telephone Number</label>
-              <input value={vals.telephone} onChange={e => sv('telephone', formatPhone(e.target.value))} placeholder="(###) ###-####" disabled={locked} />
-              {errors.telephone && <div className="field-error">{errors.telephone}</div>}
+              <input value={vals.telephone} onChange={e => sv('telephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('telephone')} placeholder="(###) ###-####" disabled={locked} style={errors.telephone ? { borderColor: '#ef1b1b' } : undefined} />
+              {errors.telephone && <div className="field-error phone-validation-error">{errors.telephone}</div>}
             </div>
             <div className="form-group">
               <label>Alternative Telephone Number</label>
-              <input value={vals.altTelephone} onChange={e => sv('altTelephone', formatPhone(e.target.value))} placeholder="(###) ###-####" disabled={locked} />
-              {errors.altTelephone && <div className="field-error">{errors.altTelephone}</div>}
+              <input value={vals.altTelephone} onChange={e => sv('altTelephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('altTelephone')} placeholder="(###) ###-####" disabled={locked} style={errors.altTelephone ? { borderColor: '#ef1b1b' } : undefined} />
+              {errors.altTelephone && <div className="field-error phone-validation-error">{errors.altTelephone}</div>}
             </div>
           </div>
           <div className="form-grid" style={{ marginTop: 12 }}>
@@ -1566,7 +1610,7 @@ function NameInsuredModal({ title, initial, onSave, onClose, locked }: {
             </div>
             <div className="form-group">
               <label>DBA Name</label>
-              <input value={vals.dbaName} onChange={e => sv('dbaName', e.target.value)} disabled={locked} />
+              <input value={vals.dbaName.slice(0, fv.ORG_NAME_MAX)} onChange={e => sv('dbaName', e.target.value.slice(0, fv.ORG_NAME_MAX))} disabled={locked} maxLength={fv.ORG_NAME_MAX} />
               {errors.dbaName && <div className="field-error">{errors.dbaName}</div>}
             </div>
           </div>
@@ -1615,6 +1659,12 @@ function OrgModal({ title, initial, onSave, onClose, locked }: {
     return errs;
   }
 
+  function validatePhoneOnBlur(field: 'telephone' | 'altTelephone') {
+    const pairErrors: Record<string, string> = {};
+    fv.checkPhonesDiffer(pairErrors, 'telephone', 'altTelephone', vals.telephone, vals.altTelephone);
+    setErrors(previous => ({ ...previous, [field]: pairErrors[field] ?? '' }));
+  }
+
   // After the first Save attempt, re-validate on every change so errors clear once valid.
   function sv(k: keyof typeof vals, v: string) {
     setVals(x => {
@@ -1641,7 +1691,7 @@ function OrgModal({ title, initial, onSave, onClose, locked }: {
           <div className="form-grid" style={{ marginBottom: 16 }}>
             <div className="form-group">
               <label><span style={{ color: '#dc2626' }}>* </span>Organization Name</label>
-              <input value={vals.orgName} onChange={e => sv('orgName', e.target.value)} disabled={locked} />
+              <input value={vals.orgName.slice(0, fv.ORG_NAME_MAX)} onChange={e => sv('orgName', e.target.value.slice(0, fv.ORG_NAME_MAX))} disabled={locked} maxLength={fv.ORG_NAME_MAX} />
               {errors.orgName && <div className="field-error">{errors.orgName}</div>}
             </div>
             <div className="form-group" style={{ position: 'relative' }}>
@@ -1690,8 +1740,8 @@ function OrgModal({ title, initial, onSave, onClose, locked }: {
           <div className="form-grid">
             <div className="form-group">
               <label><span style={{ color: '#dc2626' }}>* </span>Telephone Number</label>
-              <input value={vals.telephone} onChange={e => sv('telephone', formatPhone(e.target.value))} placeholder="(###) ###-####" disabled={locked} />
-              {errors.telephone && <div className="field-error">{errors.telephone}</div>}
+              <input value={vals.telephone} onChange={e => sv('telephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('telephone')} placeholder="(###) ###-####" disabled={locked} style={errors.telephone ? { borderColor: '#ef1b1b' } : undefined} />
+              {errors.telephone && <div className="field-error phone-validation-error">{errors.telephone}</div>}
             </div>
             <div className="form-group">
               <label>Extension</label>
@@ -1700,8 +1750,8 @@ function OrgModal({ title, initial, onSave, onClose, locked }: {
             </div>
             <div className="form-group">
               <label>Alternative Telephone Number</label>
-              <input value={vals.altTelephone} onChange={e => sv('altTelephone', formatPhone(e.target.value))} placeholder="(###) ###-####" disabled={locked} />
-              {errors.altTelephone && <div className="field-error">{errors.altTelephone}</div>}
+              <input value={vals.altTelephone} onChange={e => sv('altTelephone', formatPhone(e.target.value))} onBlur={() => validatePhoneOnBlur('altTelephone')} placeholder="(###) ###-####" disabled={locked} style={errors.altTelephone ? { borderColor: '#ef1b1b' } : undefined} />
+              {errors.altTelephone && <div className="field-error phone-validation-error">{errors.altTelephone}</div>}
             </div>
             <div className="form-group">
               <label>Email ID</label>
@@ -1864,6 +1914,12 @@ function StepPolicyInfo({
     setOrgPage(1);
   }
 
+  function validateContactPhoneOnBlur(field: 'phone' | 'altPhone') {
+    const pairErrors: Record<string, string> = {};
+    fv.checkPhonesDiffer(pairErrors, 'phone', 'altPhone', form.phone, form.altPhone);
+    setErrors(previous => ({ ...previous, [field]: pairErrors[field] ?? '' }));
+  }
+
   // Policy Info field rules (OutSystems parity):
   // Editability is Producer-only across all three fields — a Client Admin (non-producer)
   // login sees these locked; only a Producer login can edit them (subject to the other
@@ -1956,15 +2012,15 @@ function StepPolicyInfo({
               <>
                 <div className="form-grid-3">
                   <div>
-                    <Field label="First Name" required={isFirstNameRequired}><Input value={form.firstName} onChange={v => { set('firstName', v); if (v) setErrors(e => ({ ...e, firstName: '' })); }} placeholder="First Name" disabled={!nameFieldsEditable} /></Field>
+                    <Field label="First Name" required={isFirstNameRequired}><Input value={form.firstName} onChange={v => { set('firstName', fv.sanitizePolicyPersonName(v)); if (v) setErrors(e => ({ ...e, firstName: '' })); }} placeholder="First Name" disabled={!nameFieldsEditable} maxLength={fv.POLICY_PERSON_NAME_MAX} normalize={fv.sanitizePolicyPersonName} /></Field>
                     {errors.firstName && <div className="field-error">{errors.firstName}</div>}
                   </div>
                   <div>
-                    <Field label="Middle Name / Initial"><Input value={form.middleName} onChange={v => set('middleName', v)} placeholder="Middle Name / Initial" disabled={!nameFieldsEditable} /></Field>
+                    <Field label="Middle Name / Initial"><Input value={form.middleName} onChange={v => set('middleName', fv.sanitizePolicyPersonName(v))} placeholder="Middle Name / Initial" disabled={!nameFieldsEditable} maxLength={fv.POLICY_PERSON_NAME_MAX} normalize={fv.sanitizePolicyPersonName} /></Field>
                     {errors.middleName && <div className="field-error">{errors.middleName}</div>}
                   </div>
                   <div>
-                    <Field label="Last Name" required={isLastNameRequired}><Input value={form.lastName} onChange={v => { set('lastName', v); if (v) setErrors(e => ({ ...e, lastName: '' })); }} placeholder="Last Name" disabled={!nameFieldsEditable} /></Field>
+                    <Field label="Last Name" required={isLastNameRequired}><Input value={form.lastName} onChange={v => { set('lastName', fv.sanitizePolicyPersonName(v)); if (v) setErrors(e => ({ ...e, lastName: '' })); }} placeholder="Last Name" disabled={!nameFieldsEditable} maxLength={fv.POLICY_PERSON_NAME_MAX} normalize={fv.sanitizePolicyPersonName} /></Field>
                     {errors.lastName && <div className="field-error">{errors.lastName}</div>}
                   </div>
                 </div>
@@ -1978,11 +2034,11 @@ function StepPolicyInfo({
             ) : (
               <div className="form-grid">
                 <div>
-                  <Field label="Organization Name" required={isOrganisationNameRequired}><Input value={form.organizationName} onChange={v => { set('organizationName', v); if (v) setErrors(e => ({ ...e, organizationName: '' })); }} disabled={!nameFieldsEditable} /></Field>
+                  <Field label="Organization Name" required={isOrganisationNameRequired}><Input value={form.organizationName} onChange={v => { set('organizationName', v.slice(0, fv.ORG_NAME_MAX)); if (v) setErrors(e => ({ ...e, organizationName: '' })); }} disabled={!nameFieldsEditable} maxLength={fv.ORG_NAME_MAX} /></Field>
                   {errors.organizationName && <div className="field-error">{errors.organizationName}</div>}
                 </div>
                 <div>
-                  <Field label="Doing Business As"><Input value={form.doingBusinessAs} onChange={v => set('doingBusinessAs', v)} disabled={!nameFieldsEditable} /></Field>
+                  <Field label="Doing Business As"><Input value={form.doingBusinessAs} onChange={v => { set('doingBusinessAs', v.slice(0, fv.ORG_NAME_MAX)); if (errors.doingBusinessAs) setErrors(e => ({ ...e, doingBusinessAs: '' })); }} disabled={!nameFieldsEditable} maxLength={fv.ORG_NAME_MAX} /></Field>
                   {errors.doingBusinessAs && <div className="field-error">{errors.doingBusinessAs}</div>}
                 </div>
               </div>
@@ -1993,11 +2049,11 @@ function StepPolicyInfo({
               <div className="form-group form-full source-google-search">
                 <label>Google Address Search</label>
                 <GoogleAddressAutocomplete onSelect={f => {
-                  set('addressLine1', f.addressLine1);
-                  set('addressLine2', f.addressLine2 ?? '');
-                  set('city', f.city);
+                  set('addressLine1', f.addressLine1.slice(0, fv.ADDRESS_LINE_MAX));
+                  set('addressLine2', (f.addressLine2 ?? '').slice(0, fv.ADDRESS_LINE_MAX));
+                  set('city', f.city.slice(0, fv.CITY_MAX));
                   set('state', f.state);
-                  set('county', f.county);
+                  set('county', f.county.slice(0, fv.COUNTY_MAX));
                   set('zip', f.zip);
                   set('country', f.country);
                   set('latitude', f.latitude);
@@ -2009,10 +2065,10 @@ function StepPolicyInfo({
               </label>
               <div className="source-address-grid source-address-two">
                 <div>
-                  <Field label="Address Line 1" required={isAddressLine1Required}><Input value={form.addressLine1} onChange={v => set('addressLine1', v)} placeholder="Address Line 1" disabled={!isManualAddressFieldsEditable} /></Field>
+                  <Field label="Address Line 1" required={isAddressLine1Required}><Input value={form.addressLine1} onChange={v => set('addressLine1', v)} placeholder="Address Line 1" disabled={!isManualAddressFieldsEditable} maxLength={fv.ADDRESS_LINE_MAX} /></Field>
                   {errors.addressLine1 && <div className="field-error">{errors.addressLine1}</div>}
                 </div>
-                <Field label={<span>Address Line 2 <span className="source-info-icon">(i)</span></span>}><Input value={form.addressLine2} onChange={v => set('addressLine2', v)} disabled={!isManualAddressFieldsEditable} /></Field>
+                <Field label={<span>Address Line 2 <span className="source-info-icon">(i)</span></span>}><Input value={form.addressLine2} onChange={v => set('addressLine2', v)} disabled={!isManualAddressFieldsEditable} maxLength={fv.ADDRESS_LINE_MAX} /></Field>
               </div>
               <div className="source-address-grid source-address-three">
                 <div>
@@ -2024,14 +2080,14 @@ function StepPolicyInfo({
                   {errors.state && <div className="field-error">{errors.state}</div>}
                 </div>
                 <div>
-                  <Field label="City" required><Input value={form.city} onChange={v => set('city', v)} placeholder="City" disabled={!isManualAddressFieldsEditable} /></Field>
+                  <Field label="City" required><Input value={form.city} onChange={v => set('city', v)} placeholder="City" disabled={!isManualAddressFieldsEditable} maxLength={fv.CITY_MAX} /></Field>
                   {errors.city && <div className="field-error">{errors.city}</div>}
                 </div>
               </div>
               {/* D1-05: with Enter Address Manually checked, every address field is editable (County is US-only). */}
               <div className="source-address-grid source-address-two source-address-short">
                 {form.country !== fv.CANADA && (
-                  <Field label="County"><Input value={form.county} onChange={v => set('county', v)} placeholder="County" disabled={!isManualAddressFieldsEditable} /></Field>
+                  <Field label="County"><Input value={form.county} onChange={v => set('county', v)} placeholder="County" disabled={!isManualAddressFieldsEditable} maxLength={fv.COUNTY_MAX} /></Field>
                 )}
                 <div>
                   <Field label={fv.zipLabel(form.country)} required><Input value={form.zip} onChange={v => set('zip', form.country === fv.CANADA ? v.toUpperCase() : v)} placeholder={fv.zipLabel(form.country)} disabled={!isManualAddressFieldsEditable} /></Field>
@@ -2050,23 +2106,23 @@ function StepPolicyInfo({
                 const telephoneField = (
                   <div>
                     <Field label="Telephone Number">
-                      <div className="phone-input-wrap">
+                      <div className={`phone-input-wrap${errors.phone ? ' phone-input-wrap--error' : ''}`}>
                         <PhoneCountrySelect value={form.phoneCountry} onChange={v => set('phoneCountry', v)} disabled={!isContactInfoEditable} />
-                        <input value={form.phone} onChange={e => set('phone', fv.formatPhone(e.target.value))} placeholder="(###) ###-####" maxLength={14} disabled={!isContactInfoEditable} />
+                        <input value={form.phone} onChange={e => { set('phone', fv.formatPhone(e.target.value)); if (errors.phone) setErrors(previous => ({ ...previous, phone: '' })); }} onBlur={() => validateContactPhoneOnBlur('phone')} placeholder="(###) ###-####" maxLength={14} disabled={!isContactInfoEditable} />
                       </div>
                     </Field>
-                    {errors.phone && <div className="field-error">{errors.phone}</div>}
+                    {errors.phone && <div className="field-error phone-validation-error">{errors.phone}</div>}
                   </div>
                 );
                 const altTelephoneField = (
                   <div>
                     <Field label="Alternative Telephone Number">
-                      <div className="phone-input-wrap">
+                      <div className={`phone-input-wrap${errors.altPhone ? ' phone-input-wrap--error' : ''}`}>
                         <PhoneCountrySelect value={form.altPhoneCountry} onChange={v => set('altPhoneCountry', v)} disabled={!isContactInfoEditable} />
-                        <input value={form.altPhone} onChange={e => set('altPhone', fv.formatPhone(e.target.value))} placeholder="(###) ###-####" maxLength={14} disabled={!isContactInfoEditable} />
+                        <input value={form.altPhone} onChange={e => { set('altPhone', fv.formatPhone(e.target.value)); if (errors.altPhone) setErrors(previous => ({ ...previous, altPhone: '' })); }} onBlur={() => validateContactPhoneOnBlur('altPhone')} placeholder="(###) ###-####" maxLength={14} disabled={!isContactInfoEditable} />
                       </div>
                     </Field>
-                    {errors.altPhone && <div className="field-error">{errors.altPhone}</div>}
+                    {errors.altPhone && <div className="field-error phone-validation-error">{errors.altPhone}</div>}
                   </div>
                 );
                 const emailField = (
@@ -2119,10 +2175,8 @@ function StepPolicyInfo({
             )}
           </div>
           <table className="data-table policy-info-grid additional-insured-grid">
-            <thead>
+            {insuredPageRows.length > 0 && <thead>
               <tr>
-                {/* QP-19: Action column first. */}
-                <th>Action</th>
                 <SortTh label="Name"                     col="firstName"    sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('firstName')} />
                 <SortTh label="Relationship"             col="relationship" sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('relationship')} />
                 <SortTh label="Telephone Number"         col="telephone"    sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('telephone')} />
@@ -2130,20 +2184,24 @@ function StepPolicyInfo({
                 <SortTh label="Alternative Telephone No" col="altTelephone" sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('altTelephone')} />
                 <SortTh label="Insured Type"             col="insuredType"  sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('insuredType')} />
                 <SortTh label="DBA Name"                 col="dbaName"      sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('dbaName')} />
+                <th>Action</th>
               </tr>
-            </thead>
+            </thead>}
             <tbody>
               {insuredPageRows.length === 0 && (
                 <tr><td colSpan={8}>
-                  <div className="empty-state">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="#d1d5db"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 14H7v-2h5v2zm5-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 8 }}>No Data Available</div>
-                    <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Please add data to get started.</div>
-                  </div>
+                  <div className="policy-empty-table">No Data Available</div>
                 </td></tr>
               )}
               {insuredPageRows.map(ai => (
                 <tr key={ai.id}>
+                  <td>{[ai.firstName, ai.middleName, ai.lastName].filter(Boolean).join(' ')}</td>
+                  <td>{ai.relationship || '-'}</td>
+                  <td>{fv.formatPhoneView(ai.telephone) || '-'}</td>
+                  <td>{ai.email || '-'}</td>
+                  <td>{fv.formatPhoneView(ai.altTelephone) || '-'}</td>
+                  <td>{ai.insuredType}</td>
+                  <td>{ai.dbaName || '-'}</td>
                   <td>
                     <div className="policy-action-cell">
                       <button className="action-btn" title={canEditManualRow(ai) ? 'Edit' : 'Edit unavailable'} disabled={!canEditManualRow(ai)} onClick={() => setInsuredModal({ mode: 'edit', item: ai })}>
@@ -2154,27 +2212,20 @@ function StepPolicyInfo({
                       </button>
                     </div>
                   </td>
-                  <td>{[ai.firstName, ai.middleName, ai.lastName].filter(Boolean).join(' ')}</td>
-                  <td>{ai.relationship || '-'}</td>
-                  <td>{ai.telephone || '-'}</td>
-                  <td>{ai.email || '-'}</td>
-                  <td>{ai.altTelephone || '-'}</td>
-                  <td>{ai.insuredType}</td>
-                  <td>{ai.dbaName || '-'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="table-footer">
+          {fv.showPagination(sortedInsureds.length) && <div className="table-footer">
             <span>Showing {insuredPageRows.length} records from {sortedInsureds.length} Results</span>
-            {fv.showPagination(sortedInsureds.length) && <div className="pagination">
+            <div className="pagination">
               <button className="page-btn" disabled={insuredPage <= 1} onClick={() => setInsuredPage(p => p - 1)}>&#8249;</button>
               {Array.from({ length: insuredTotalPages }, (_, i) => (
                 <button key={i+1} className={`page-btn${insuredPage === i+1 ? ' active' : ''}`} onClick={() => setInsuredPage(i+1)}>{i+1}</button>
               ))}
               <button className="page-btn" disabled={insuredPage >= insuredTotalPages} onClick={() => setInsuredPage(p => p + 1)}>&#8250;</button>
-            </div>}
-          </div>
+            </div>
+          </div>}
         </div>
       )}
 
@@ -2190,9 +2241,8 @@ function StepPolicyInfo({
           )}
         </div>
         <table className="data-table policy-info-grid additional-org-grid">
-          <thead>
+          {orgPageRows.length > 0 && <thead>
             <tr>
-              <th>Action</th>
               <SortTh label="Org Name"                 col="orgName"          sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('orgName')} />
               <SortTh label="Org Type"                   col="orgType"          sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('orgType')} />
               <SortTh label="Telephone Number"           col="telephone"        sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('telephone')} />
@@ -2200,20 +2250,28 @@ function StepPolicyInfo({
               <SortTh label="Alternative Telephone No"   col="altTelephone"     sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('altTelephone')} />
               <SortTh label="Email ID"                   col="email"            sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('email')} />
               <SortTh label="Contact Name"               col="contactFirstName" sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('contactFirstName')} />
+              <th>Action</th>
             </tr>
-          </thead>
+          </thead>}
           <tbody>
             {orgPageRows.length === 0 && (
               <tr><td colSpan={8}>
-                <div className="empty-state">
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="#d1d5db"><path d="M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z"/></svg>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginTop: 8 }}>No Data Available</div>
-                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>Please add data to get started.</div>
-                </div>
+                <div className="policy-empty-table">No Data Available</div>
               </td></tr>
             )}
             {orgPageRows.map(org => (
               <tr key={org.id}>
+                <td>{org.orgName}</td>
+                <td>{org.orgType}</td>
+                <td>{fv.formatPhoneView(org.telephone) || '-'}</td>
+                <td>{org.extension || '-'}</td>
+                <td>
+                  {org.altTelephone
+                    ? <a href={`tel:${org.altTelephone.replace(/\D/g, '')}`} style={{ color: '#1a3b6b', textDecoration: 'none' }}>{fv.formatPhoneView(org.altTelephone)}</a>
+                    : '-'}
+                </td>
+                <td>{org.email || '-'}</td>
+                <td>{[org.contactFirstName, org.contactMiddleName, org.contactLastName].filter(Boolean).join(' ') || '-'}</td>
                 <td>
                   <div className="policy-action-cell">
                     <button className="action-btn" title={canEditManualRow(org) ? 'Edit' : 'Edit unavailable'} disabled={!canEditManualRow(org)} onClick={() => setOrgModal({ mode: 'edit', item: org })}>
@@ -2224,31 +2282,20 @@ function StepPolicyInfo({
                     </button>
                   </div>
                 </td>
-                <td>{org.orgName}</td>
-                <td>{org.orgType}</td>
-                <td>{org.telephone || '-'}</td>
-                <td>{org.extension || '-'}</td>
-                <td>
-                  {org.altTelephone
-                    ? <a href={`tel:${org.altTelephone.replace(/\D/g, '')}`} style={{ color: '#1a3b6b', textDecoration: 'none' }}>{org.altTelephone}</a>
-                    : '-'}
-                </td>
-                <td>{org.email || '-'}</td>
-                <td>{[org.contactFirstName, org.contactMiddleName, org.contactLastName].filter(Boolean).join(' ') || '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <div className="table-footer">
+        {fv.showPagination(sortedOrgs.length) && <div className="table-footer">
           <span>Showing {orgPageRows.length} records from {sortedOrgs.length} Results</span>
-          {fv.showPagination(sortedOrgs.length) && <div className="pagination">
+          <div className="pagination">
             <button className="page-btn" disabled={orgPage <= 1} onClick={() => setOrgPage(p => p - 1)}>&#8249;</button>
             {Array.from({ length: orgTotalPages }, (_, i) => (
               <button key={i+1} className={`page-btn${orgPage === i+1 ? ' active' : ''}`} onClick={() => setOrgPage(i+1)}>{i+1}</button>
             ))}
             <button className="page-btn" disabled={orgPage >= orgTotalPages} onClick={() => setOrgPage(p => p + 1)}>&#8250;</button>
-          </div>}
-        </div>
+          </div>
+        </div>}
       </div>
 
       {/* D1-02 / UM-13: the standard uncheck confirmation shared with AddressFields. */}
@@ -2317,11 +2364,19 @@ function StepLocation({ form, set, locations, setLocations }: {
 
   const excludedScreen = ['ENDORSEMENTINDIVIDUAL', 'ENDORSEMENTBUSINESS', 'RENEWALINDIVIDUAL', 'RENEWALBUSINESS'].includes(String(form.screenCode).toUpperCase());
   const approved = String(form.hexCatStatus).toUpperCase() === 'APPROVED';
-  const checkboxEnabled = form.isHBProducer
+  const existingCheckboxRule = form.isHBProducer
     ? form.isQuickQuote && !approved && !form.lockSubmission && !excludedScreen
     : (!form.isDataLocationDisabled || form.isAddressDataFetched) && !approved && !form.lockSubmission && !excludedScreen;
-  const canEditLocation = checkboxEnabled;
-  const canAddLocation = locations.length === 0 && checkboxEnabled && !form.locationSameAsMailing;
+  // A normal New Business quote must allow the user to switch away from the
+  // mailing address and add a manual risk location. Previously Producer quotes
+  // were incorrectly blocked unless they were also marked as Quick Quotes.
+  const newBusinessLocationEntryEnabled = getFlowKind(form) === 'newBusiness';
+  const checkboxEnabled = existingCheckboxRule || newBusinessLocationEntryEnabled;
+  const manualLocationMode = !booleanValue(form.locationSameAsMailing);
+  const canEditLocation = checkboxEnabled || manualLocationMode;
+  // Once "same as mailing" is unchecked, manual entry is the intended path.
+  // Do not let unrelated role/quote flags keep the Add Location action disabled.
+  const canAddLocation = locations.length === 0 && manualLocationMode;
 
   function mailingLocation(): LocationItem {
     return {
@@ -2402,12 +2457,12 @@ function StepLocation({ form, set, locations, setLocations }: {
     <div className="risk-location-screen">
       <div className="risk-location-header">
         <label className="check-row">
-          <input type="checkbox" checked={form.locationSameAsMailing}
+          <input type="checkbox" checked={booleanValue(form.locationSameAsMailing)}
             disabled={!checkboxEnabled}
             onChange={e => handleSameAsMailing(e.target.checked)} />
           Location Address same as Mailing Address
         </label>
-        <button className="add-btn" disabled={!canAddLocation} onClick={() => canAddLocation && setShowAdd(true)}>&#43; Add Location</button>
+        <button type="button" className="add-btn" disabled={!canAddLocation} onClick={() => canAddLocation && setShowAdd(true)}>&#43; Add Location</button>
       </div>
 
       {locations.length === 0 && (
@@ -2635,57 +2690,29 @@ function StepRiskInfo({ form, set, mortgages, setMortgages, isLoggedInUserProduc
         <button className="add-btn" onClick={() => setShowAdd(true)} disabled={!mortgageAddButtonEnabled} style={{ opacity: mortgageAddButtonEnabled ? 1 : 0.5, cursor: mortgageAddButtonEnabled ? 'pointer' : 'not-allowed' }}>&#43; ADD</button>
       </div>
       <table className="mini-table risk-info-mortgage-table">
-        <thead>
+        {mortgages.length > 0 && <thead>
           <tr>
-            {/* QP-27: Action column first. */}
-            <th>Action</th><th>Mortgage Name</th><th>Loan Type</th><th>Address</th>
-            <th>Telephone Number</th><th>Email ID</th>
+            <th>Mortgage Name</th><th>Loan Type</th><th>Address</th>
+            <th>Telephone Number</th><th>Email ID</th><th>Action</th>
           </tr>
-        </thead>
+        </thead>}
         <tbody>
           {mortgages.length === 0 && (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: '#9ca3af', padding: 16, fontSize: 12 }}>No Data Available</td></tr>
+            <tr><td colSpan={6}><div className="policy-empty-table">No Data Available</div></td></tr>
           )}
           {mortgages.map(m => (
             <tr key={m.id}>
-              <td>
-                <div className="policy-action-cell">
-                  <button
-                    className="action-btn mortgage-view-action"
-                    title={form.lockSubmission ? "Locked - Cannot view" : "View"}
-                    onClick={() => !form.lockSubmission && setViewId(m.id)}
-                    disabled={form.lockSubmission}
-                    style={{
-                      opacity: form.lockSubmission ? 0.3 : 1,
-                      cursor: form.lockSubmission ? 'not-allowed' : 'pointer',
-                      filter: form.lockSubmission ? 'grayscale(100%)' : 'none',
-                      pointerEvents: form.lockSubmission ? 'none' : 'auto'
-                    }}
-                  >
-                    &#128065;
-                  </button>
-                  <button
-                    className="action-btn"
-                    title={form.lockSubmission ? "Locked - Cannot delete" : "Delete"}
-                    style={{
-                      color: form.lockSubmission ? '#a8a8a8' : '#dc2626',
-                      opacity: form.lockSubmission ? 0.3 : 1,
-                      cursor: form.lockSubmission ? 'not-allowed' : 'pointer',
-                      filter: form.lockSubmission ? 'grayscale(100%)' : 'none',
-                      pointerEvents: form.lockSubmission ? 'none' : 'auto'
-                    }}
-                    onClick={() => !form.lockSubmission && setDeleteId(m.id)}
-                    disabled={form.lockSubmission}
-                  >
-                    &#128465;
-                  </button>
-                </div>
-              </td>
               <td>{m.name}</td>
               <td>{m.loanType}</td>
               <td className="mortgage-address-cell">{mortgageAddressDisplay(m)}</td>
               <td>{mortgagePhoneDisplay(m)}</td>
               <td>{m.email}</td>
+              <td>
+                <div className="policy-action-cell">
+                  <button className="action-btn mortgage-view-action" title={form.lockSubmission ? "Locked - Cannot view" : "View"} onClick={() => !form.lockSubmission && setViewId(m.id)} disabled={form.lockSubmission} style={{ opacity: form.lockSubmission ? 0.3 : 1, cursor: form.lockSubmission ? 'not-allowed' : 'pointer', filter: form.lockSubmission ? 'grayscale(100%)' : 'none', pointerEvents: form.lockSubmission ? 'none' : 'auto' }}>&#128065;</button>
+                  <button className="action-btn" title={form.lockSubmission ? "Locked - Cannot delete" : "Delete"} style={{ color: form.lockSubmission ? '#a8a8a8' : '#dc2626', opacity: form.lockSubmission ? 0.3 : 1, cursor: form.lockSubmission ? 'not-allowed' : 'pointer', filter: form.lockSubmission ? 'grayscale(100%)' : 'none', pointerEvents: form.lockSubmission ? 'none' : 'auto' }} onClick={() => !form.lockSubmission && setDeleteId(m.id)} disabled={form.lockSubmission}>&#128465;</button>
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -2699,16 +2726,18 @@ function StepRiskInfo({ form, set, mortgages, setMortgages, isLoggedInUserProduc
 }
 
 // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 3: Limits & Coverages ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-function StepLimits({ form, set, isLoggedInUserProducer }: { form: FormState; set: (k: keyof FormState, v: any) => void; isLoggedInUserProducer: boolean }) {
+function StepLimits({ form, set, isLoggedInUserProducer, showApprovalNote, errors }: { form: FormState; set: (k: keyof FormState, v: any) => void; isLoggedInUserProducer: boolean; showApprovalNote: boolean; errors: Record<string, string> }) {
   // Source: quotes-review-limits-premium-summary-scrape.md (OutSystems observed values)
-  const sinkholeOpts = ['Yes', 'Non-Transferred'];
+  const sinkholeOpts = ['Select', 'Yes', 'No'];
+  const earthquakeOpts = ['Select', 'None', '25,000', '50,000', '100,000'];
+  const floodOpts = ['Select', 'None', '10,000', '25,000', '50,000'];
   const noYesOpts = ['No', 'Yes'];
+  const err = (key: string) => errors[key] ? <div className="field-error">{errors[key]}</div> : null;
 
   const isNewBusiness = form.screenCode === 'NEWBUSINESSINDIVIDUAL' || form.screenCode === 'NEWBUSINESSBUSINESS';
   const isRenewal = form.screenCode === 'RENEWALINDIVIDUAL' || form.screenCode === 'RENEWALBUSINESS';
   const isEndorsement = form.screenCode === 'ENDORSEMENTINDIVIDUAL' || form.screenCode === 'ENDORSEMENTBUSINESS';
   const isBulkUploaded = form.isBulkUploaded;
-  const isBusinessInsured = form.insuredType === 'Business';
 
   // Premium panel visibility:
   // Show if: Client user (NOT producer)
@@ -2737,6 +2766,11 @@ function StepLimits({ form, set, isLoggedInUserProducer }: { form: FormState; se
         !form.lockSubmission &&
         !isEndorsement));
 
+  // Producer-login requirement: these 13 user-entered coverage fields are
+  // editable for an authenticated Producer regardless of persisted quote flags.
+  // Non-Producer behavior continues to use the existing transaction rules.
+  const canEditRequestedCoverages = isLoggedInUserProducer || isFieldEnabled;
+
   // Dwelling Asset Limit: For bulk-uploaded, disable. Otherwise: new business, OR renewal, OR endorsement with specific policy conditions
   const isDwellingEnabled =
     !isBulkUploaded &&
@@ -2758,26 +2792,26 @@ function StepLimits({ form, set, isLoggedInUserProducer }: { form: FormState; se
   return (
     <div>
       <div className="form-grid-3">
-        <Field label="Dwelling Asset Limit" required><Input value={form.dwellingLimit} onChange={v => set('dwellingLimit', v)} disabled={!isDwellingEnabled} /></Field>
+        <Field label="Dwelling Asset Limit" required><Input value={form.dwellingLimit} onChange={v => set('dwellingLimit', v)} disabled={!(isLoggedInUserProducer || isDwellingEnabled)} hasError={Boolean(errors.dwellingLimit)} />{err('dwellingLimit')}</Field>
         <Field label="Appurtenant Structure Assets Limit"><Input value={form.appurtenantLimit} onChange={v => set('appurtenantLimit', v)} disabled /></Field>
         <Field label="Personal Assets (Other than Fixed Assets) Limit"><Input value={form.personalAssetsLimit} onChange={v => set('personalAssetsLimit', v)} disabled /></Field>
         <Field label="Dwelling Occupancy Disruption Limit"><Input value={form.occupancyDisruptionLimit} onChange={v => set('occupancyDisruptionLimit', v)} disabled /></Field>
         <Field label="Total Insured Values"><Input value={formatNumberValue(totalInsuredValue(form))} disabled /></Field>
       </div>
       <div className="form-grid-3" style={{ marginTop: 14 }}>
-        <Field label="Physical Damage Deductible" required><FSelect value={form.deductible} onChange={v => set('deductible', v)} options={['2,500','5,000','10,000','25,000']} disabled={!isFieldEnabled} /></Field>
+        <Field label="Physical Damage Deductible" required><FSelect value={form.deductible} onChange={v => set('deductible', v)} options={['2,500','5,000','10,000','25,000']} disabled={!canEditRequestedCoverages} />{err('deductible')}</Field>
         <Field label="Coverage Level"><FSelect value={form.coverageLevel} onChange={v => set('coverageLevel', v)} options={['Basic','Standard','Preferred']} disabled /></Field>
-        <Field label="Amount of Liability Coverage" required><FSelect value={form.liabilityAmount} onChange={v => set('liabilityAmount', v)} options={['100,000','300,000','500,000']} disabled={!isFieldEnabled} /></Field>
-        <Field label="Excess Scheduled Blanket Covered Personal Liabilities" required><FSelect value={form.excessBlanketLiabilities} onChange={v => set('excessBlanketLiabilities', v)} options={['Not Applicable','500,000']} disabled={!isFieldEnabled} /></Field>
-        <Field label="Sinkhole and Catastrophic Ground Collapse" required><FSelect value={form.sinkhole} onChange={v => set('sinkhole', v)} options={sinkholeOpts} disabled={!isFieldEnabled} /></Field>
-        <Field label="Earthquake" required><FSelect value={form.earthquake} onChange={v => set('earthquake', v)} options={['Non-Transferred','25,000','50,000','100,000']} disabled={!isFieldEnabled} /></Field>
-        <Field label="Flood" required><FSelect value={form.flood} onChange={v => set('flood', v)} options={['Non-Transferred','10,000','25,000','50,000']} disabled={!isFieldEnabled} /></Field>
-        <Field label="Wind & Hail" required><FSelect value={form.windHail} onChange={v => set('windHail', v)} options={['Included','Non-Transferred']} disabled={!isFieldEnabled} /></Field>
-        <Field label="WildFire" required><FSelect value={form.wildfire} onChange={v => set('wildfire', v)} options={['Included','Non-Transferred']} disabled={!isFieldEnabled} /></Field>
-        <Field label="Residential Worker No-fault Medical" required><FSelect value={form.resWorkerMedical} onChange={v => set('resWorkerMedical', v)} options={noYesOpts} disabled={!isFieldEnabled} /></Field>
-        <Field label="Small Scale Farming Endorsement"><FSelect value={form.farmingEndorsement} onChange={v => set('farmingEndorsement', v)} options={noYesOpts} disabled={!isFieldEnabled} /></Field>
-        <Field label="Landlord Endorsement" required><FSelect value={form.landlordEndorsement} onChange={v => set('landlordEndorsement', v)} options={noYesOpts} disabled={!isFieldEnabled} /></Field>
-        <Field label="Home Office Endorsement" required><FSelect value={form.homeOfficeEndorsement} onChange={v => set('homeOfficeEndorsement', v)} options={noYesOpts} disabled={!isFieldEnabled} /></Field>
+        <Field label="Amount of Liability Coverage" required><FSelect value={form.liabilityAmount} onChange={v => set('liabilityAmount', v)} options={['100,000','300,000','500,000']} disabled={!canEditRequestedCoverages} />{err('liabilityAmount')}</Field>
+        <Field label="Excess Scheduled Blanket Covered Personal Liabilities" required><FSelect value={form.excessBlanketLiabilities} onChange={v => set('excessBlanketLiabilities', v)} options={['Not Applicable','500,000']} disabled={!canEditRequestedCoverages} />{err('excessBlanketLiabilities')}</Field>
+        <Field label="Sinkhole and Catastrophic Ground Collapse" required><FSelect value={form.sinkhole} onChange={v => set('sinkhole', v)} options={sinkholeOpts} disabled={!canEditRequestedCoverages} />{err('sinkhole')}</Field>
+        <Field label="Earthquake" required><FSelect value={form.earthquake} onChange={v => set('earthquake', v)} options={earthquakeOpts} disabled={!canEditRequestedCoverages} />{err('earthquake')}</Field>
+        <Field label="Flood" required><FSelect value={form.flood} onChange={v => set('flood', v)} options={floodOpts} disabled={!canEditRequestedCoverages} />{err('flood')}</Field>
+        <Field label="Wind & Hail" required><FSelect value={form.windHail} onChange={v => set('windHail', v)} options={['Included','Non-Transferred']} disabled={!canEditRequestedCoverages} />{err('windHail')}</Field>
+        <Field label="WildFire" required><FSelect value={form.wildfire} onChange={v => set('wildfire', v)} options={['Included','Non-Transferred']} disabled={!canEditRequestedCoverages} />{err('wildfire')}</Field>
+        <Field label="Residential Worker No-fault Medical" required><FSelect value={form.resWorkerMedical} onChange={v => set('resWorkerMedical', v)} options={noYesOpts} disabled={!canEditRequestedCoverages} />{err('resWorkerMedical')}</Field>
+        <Field label="Small Scale Farming Endorsement"><FSelect value={form.farmingEndorsement} onChange={v => set('farmingEndorsement', v)} options={noYesOpts} disabled={!canEditRequestedCoverages} /></Field>
+        <Field label="Landlord Endorsement" required><FSelect value={form.landlordEndorsement} onChange={v => set('landlordEndorsement', v)} options={noYesOpts} disabled={!canEditRequestedCoverages} />{err('landlordEndorsement')}</Field>
+        <Field label="Home Office Endorsement" required><FSelect value={form.homeOfficeEndorsement} onChange={v => set('homeOfficeEndorsement', v)} options={noYesOpts} disabled={!canEditRequestedCoverages} />{err('homeOfficeEndorsement')}</Field>
       </div>
       {showPremiumPanel && (
         <>
@@ -2786,15 +2820,15 @@ function StepLimits({ form, set, isLoggedInUserProducer }: { form: FormState; se
             <div className="form-grid-3">
               {isBulkUploaded || !isNewBusiness ? (
                 <>
-                  <Field label="Prior Policy Period Premium" required><Input value={form.priorPolicyPremium} onChange={v => set('priorPolicyPremium', v)} disabled={isBulkUploaded || !isPriorPremiumEnabled} /></Field>
+                  <Field label="Prior Policy Period Premium" required><Input value={form.priorPolicyPremium} onChange={v => set('priorPolicyPremium', v)} disabled={isBulkUploaded || !isPriorPremiumEnabled} hasError={Boolean(errors.priorPolicyPremium)} />{err('priorPolicyPremium')}</Field>
                   <Field label="Basic Coverage level Calculation Premium"><Input value={form.basePremium} onChange={v => set('basePremium', v)} disabled={isBulkUploaded} /></Field>
                   <Field label="Rate Modification"><Input value={form.rateModification} onChange={v => set('rateModification', v)} disabled={isBulkUploaded} /></Field>
                 </>
               ) : (
-                <Field label="Prior Policy Period Premium" required><Input value={form.priorPolicyPremium} onChange={v => set('priorPolicyPremium', v)} disabled={!isPriorPremiumEnabled} /></Field>
+                <Field label="Prior Policy Period Premium" required><Input value={form.priorPolicyPremium} onChange={v => set('priorPolicyPremium', v)} disabled={!isPriorPremiumEnabled} hasError={Boolean(errors.priorPolicyPremium)} />{err('priorPolicyPremium')}</Field>
               )}
             </div>
-            {!isBulkUploaded && isBusinessInsured && (
+            {showApprovalNote && (
               <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: 13, padding: '12px 16px', borderRadius: 6, lineHeight: 1.5, minWidth: 300 }}>
                 Note: Please select the Save button to save your changes and then select the Close button to close the quote. You will be notified once the quote is approved.
               </div>
@@ -2810,10 +2844,10 @@ function StepLimits({ form, set, isLoggedInUserProducer }: { form: FormState; se
 const DEDUCTIBLE_OPTIONS = ['2,500', '5,000', '10,000', '25,000'];
 const LIABILITY_OPTIONS = ['100,000', '300,000', '500,000'];
 const TRANSFER_OPTIONS = ['Included', 'Non-Transferred'];
-const SINKHOLE_OPTIONS = ['Yes', 'Non-Transferred'];
+const SINKHOLE_OPTIONS = ['Select', 'Yes', 'No'];
 const EXCESS_OPTIONS = ['Not Applicable', '500,000'];
-const EARTHQUAKE_OPTIONS = ['Non-Transferred', '25,000', '50,000', '100,000'];
-const FLOOD_OPTIONS = ['Non-Transferred', '10,000', '25,000', '50,000'];
+const EARTHQUAKE_OPTIONS = ['Select', 'None', '25,000', '50,000', '100,000'];
+const FLOOD_OPTIONS = ['Select', 'None', '10,000', '25,000', '50,000'];
 const YES_NO_OPTIONS = ['No', 'Yes'];
 
 type AmountKey = keyof Pick<PlanAmounts, 'wildfire' | 'windHail' | 'sinkhole' | 'excessLiability' | 'earthquake' | 'flood' | 'resWorker' | 'farming' | 'landlord' | 'homeOffice'>;
@@ -3144,7 +3178,7 @@ function StepQuoteReview({ form, onEdit }: { form: FormState; onEdit: () => void
       ]
     : [
         ['Insured Name', displayValue(fullName, '')],
-        ['Telephone No.', displayValue(scenarioForm.phone, '')],
+        ['Telephone No.', fv.formatPhoneView(scenarioForm.phone)],
         ['Address', displayValue(address, ''), 'wide'],
         ['Email ID', displayValue(scenarioForm.email, ''), 'wide'],
       ];
@@ -5421,14 +5455,16 @@ export default function NewSubmission() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const readOnly = searchParams.get('readOnly') === '1';
+  const requestedPolicyNumber = searchParams.get('policyNumber')?.trim() ?? '';
   const [notFound, setNotFound] = useState(false);
-  const [step, setStepState] = useState(normalizedStep(searchParams.get('step')));
+  const [step, setStepState] = useState(Math.min(normalizedStep(searchParams.get('step')), 3));
   // Not local state — `id` is the reactive route param. handleCreate() below POSTs a new
   // submission and navigates to /submissions/{newId} without remounting this component, so
   // freezing this in useState(id || '') at first mount (when id was still undefined on the
   // /new route) left every subsequent save calling PUT /api/submissions/ with no id (405).
   const submissionId = id || '';
   const [form, setForm] = useState<FormState>(defaultForm);
+  const [submissionLoaded, setSubmissionLoaded] = useState(false);
   const [landingForm, setLandingForm] = useState<NewSubmissionLandingForm>(DEFAULT_LANDING_FORM);
   // Start empty, not seeded with fake placeholder data (DEFAULT_LOCATION/DEFAULT_MORTGAGE/
   // SAMPLE_ADDITIONAL_INSUREDS/SAMPLE_ADDITIONAL_ORGS below are fictional records —
@@ -5460,6 +5496,7 @@ export default function NewSubmission() {
   const [step1Errors, setStep1Errors] = useState<Record<string, string>>({});
   const [step2Errors, setStep2Errors] = useState<Record<string, string>>({});
   const [step3Errors, setStep3Errors] = useState<Record<string, string>>({});
+  const [step3Attempted, setStep3Attempted] = useState(false);
   const [step4Errors, setStep4Errors] = useState<Record<string, string>>({});
   // Finalize Quote required-field errors, rendered inline under the dropdowns (PRD §4/§5)
   const [finalizeErrors, setFinalizeErrors] = useState<{ frequency?: string; party?: string }>({});
@@ -5553,9 +5590,16 @@ export default function NewSubmission() {
   const showLanding = !id && String(searchParams.get('landing')) === '1';
 
   useEffect(() => {
+    if (!submissionLoaded) return;
     const urlStep = normalizedStep(searchParams.get('step'));
-    if (urlStep !== step) setStepState(urlStep);
-  }, [searchParams]);
+    const guardedStep = isManualNewBusinessAwaitingApproval(form) && urlStep > 3 ? 3 : urlStep;
+    if (guardedStep !== step) setStepState(guardedStep);
+    if (guardedStep !== urlStep) {
+      const params = new URLSearchParams(searchParams);
+      params.set('step', String(guardedStep));
+      setSearchParams(params, { replace: true });
+    }
+  }, [searchParams, step, submissionLoaded, form.screenCode, form.policyType, form.isBulkUploaded, form.approvalStatus, form.hexCatStatus, form.recordStatus, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5602,26 +5646,29 @@ export default function NewSubmission() {
         const result = await authApi.getMyProducer();
         if (cancelled) return;
         const { producer, intermediary } = result;
-        if (producer && intermediary) {
+        const profile = producer ? null : await authApi.getMyProfile().catch(() => null);
+        if (cancelled) return;
+        const hasProducerRole = String(profile?.roleName || '').toLowerCase().includes('producer');
+        const producerLogin = producer != null || hasProducerRole;
+
+        if (producerLogin) {
           setIsLoggedInUserProducer(true);
           isLoggedInUserProducerRef.current = true;
           setProducerStates(result.states ?? []);
-          const brokerageFirmName = intermediary.intermediary_name;
-          const producerFullName = `${producer.first_name} ${producer.last_name}`.trim();
 
-          // Update landing form
-          setLandingForm(prev => ({
-            ...prev,
-            intermediaryType: 'Brokerage',
-            brokerageFirm: brokerageFirmName,
-            brokerageFirmId: intermediary.id,
-            producerName: producerFullName,
-            producerId: producer.id,
-          }));
+          if (producer && intermediary) {
+            const brokerageFirmName = intermediary.intermediary_name;
+            const producerFullName = `${producer.first_name} ${producer.last_name}`.trim();
 
-          // Auto-populate the main form for step 0 ONLY after intermediary options are loaded
-          // so the dropdown values match the options available
-          if (intermediaryOptions.length > 0) {
+            setLandingForm(prev => ({
+              ...prev,
+              intermediaryType: 'Brokerage',
+              brokerageFirm: brokerageFirmName,
+              brokerageFirmId: intermediary.id,
+              producerName: producerFullName,
+              producerId: producer.id,
+            }));
+
             setForm(prev => ({
               ...prev,
               brokerageFirm: brokerageFirmName,
@@ -5631,21 +5678,27 @@ export default function NewSubmission() {
               isHBProducer: true,
             }));
           } else {
+            // A Producer-role login may not have an intermediary returned to this
+            // page. Role-based field permissions must still identify it as Producer.
             setForm(prev => ({ ...prev, isHBProducer: true }));
           }
         } else {
           setIsLoggedInUserProducer(false);
+          isLoggedInUserProducerRef.current = false;
           setForm(prev => ({ ...prev, isHBProducer: false }));
         }
       } catch (err) {
         console.error('Failed to load logged-in user producer info', err);
-        setIsLoggedInUserProducer(false);
+        const profile = await authApi.getMyProfile().catch(() => null);
+        if (cancelled) return;
+        const hasProducerRole = String(profile?.roleName || '').toLowerCase().includes('producer');
+        setIsLoggedInUserProducer(hasProducerRole);
+        isLoggedInUserProducerRef.current = hasProducerRole;
+        setForm(prev => ({ ...prev, isHBProducer: hasProducerRole }));
       }
     }
-    // Only run after intermediaryOptions are loaded
-    if (intermediaryOptions.length > 0) {
-      loadMyProducerInfo();
-    }
+    // Producer permissions must not depend on the general intermediary list.
+    loadMyProducerInfo();
     return () => { cancelled = true; };
   }, [intermediaryOptions]);
 
@@ -5732,9 +5785,11 @@ export default function NewSubmission() {
   useEffect(() => {
     let cancelled = false;
     async function loadSubmission() {
+      setSubmissionLoaded(false);
       if (!id) {
         setForm(applyPlanScenarioDefaults(defaultForm));
         setLandingForm(DEFAULT_LANDING_FORM);
+        setSubmissionLoaded(true);
         return;
       }
       try {
@@ -5756,6 +5811,18 @@ export default function NewSubmission() {
           recordStatus: data.status ?? formData?.recordStatus ?? defaultForm.recordStatus,
           lockSubmission: readOnly || isReadOnlySubmission(data),
         } as FormState;
+
+        // Policy Summary opens the backing submission by quote/submission ID, while
+        // the user-facing identity must remain the selected policy number. This also
+        // normalizes legacy issued submissions whose stored flow metadata is missing.
+        if (readOnly && requestedPolicyNumber) {
+          merged.policyNumber = requestedPolicyNumber;
+          merged.policyType = 'POLICY';
+          if (!String(merged.screenCode || '').toUpperCase().startsWith('POLICY')) {
+            const policyInsuredType = String(merged.insuredType || 'Individual').toUpperCase();
+            merged.screenCode = policyInsuredType === 'BUSINESS' ? 'POLICYBUSINESS' : 'POLICYINDIVIDUAL';
+          }
+        }
 
         // For renewals, fetch and merge prior policy data
         if (isRenewal && data.renewalOfPolicyId) {
@@ -5847,11 +5914,13 @@ export default function NewSubmission() {
         } else {
           console.error('Failed to load submission', err);
         }
+      } finally {
+        if (!cancelled) setSubmissionLoaded(true);
       }
     }
     loadSubmission();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, readOnly, requestedPolicyNumber]);
 
   const landingStateOptions = producerStates ?? ALL_STATES;
 
@@ -5939,6 +6008,7 @@ export default function NewSubmission() {
     // let a stale/mis-seeded screenCode land the wizard on a step it can't actually render
     // correctly for this flow.
     if (!stepsForFlow(flow).includes(next)) return;
+    if (isManualNewBusinessAwaitingApproval(form) && next > 3) return;
     setStepState(next);
     const params = new URLSearchParams(searchParams);
     params.set('step', String(next));
@@ -5947,7 +6017,13 @@ export default function NewSubmission() {
 
   function set(k: keyof FormState, v: any) {
     setForm(f => {
-      const next = { ...f, [k]: v } as FormState;
+      const nextValue =
+        (k === 'organizationName' || k === 'doingBusinessAs') && typeof v === 'string'
+          ? v.slice(0, fv.ORG_NAME_MAX)
+          : (k === 'firstName' || k === 'middleName' || k === 'lastName') && typeof v === 'string'
+            ? fv.sanitizePolicyPersonName(v)
+            : v;
+      const next = { ...f, [k]: nextValue } as FormState;
       if (['dwellingLimit', 'appurtenantLimit', 'personalAssetsLimit', 'occupancyDisruptionLimit'].includes(String(k))) {
         next.totalInsuredValues = formatNumberValue(totalInsuredValue(next));
       }
@@ -5984,9 +6060,9 @@ export default function NewSubmission() {
     // Primary Insured - all mandatory
     if (isPersonType) {
       // QP-21: app-wide name rule.
-      fv.checkName(errors, 'firstName', form.firstName, 'First Name', true);
-      fv.checkName(errors, 'middleName', form.middleName, 'Middle Name');
-      fv.checkName(errors, 'lastName', form.lastName, 'Last Name', true);
+      fv.checkPolicyPersonName(errors, 'firstName', form.firstName, 'First Name', true);
+      fv.checkPolicyPersonName(errors, 'middleName', form.middleName, 'Middle Name');
+      fv.checkPolicyPersonName(errors, 'lastName', form.lastName, 'Last Name', true);
       if (!form.age65OrOlder) errors.age65OrOlder = 'Provide age information to continue';
     } else {
       if (!form.organizationName) errors.organizationName = 'Provide Organization Name to continue';
@@ -6037,9 +6113,32 @@ export default function NewSubmission() {
 
   function validateStep3(): Record<string, string> {
     const errors: Record<string, string> = {};
-    // Limits & Coverages step - validate mandatory coverage selections
+    const missing = (value: unknown) => {
+      const normalized = String(value ?? '').trim();
+      return !normalized || normalized.toLowerCase() === 'select';
+    };
+    if (numberValue(form.dwellingLimit) <= 0) errors.dwellingLimit = 'Provide Dwelling Asset Limit to continue';
+    if (missing(form.deductible)) errors.deductible = 'Provide Physical Damage Deductible to continue';
+    if (missing(form.liabilityAmount)) errors.liabilityAmount = 'Provide Amount of Liability Coverage to continue';
+    if (missing(form.excessBlanketLiabilities) || form.excessBlanketLiabilities === 'No Coverage') errors.excessBlanketLiabilities = 'Provide Excess Scheduled Blanket Covered Personal Liabilities to continue';
+    if (missing(form.sinkhole)) errors.sinkhole = 'Provide Sinkhole and Catastrophic Ground Collapse to continue';
+    if (missing(form.earthquake)) errors.earthquake = 'Provide Earthquake to continue';
+    if (missing(form.flood)) errors.flood = 'Provide Flood to continue';
+    if (missing(form.windHail)) errors.windHail = 'Provide Wind & Hail to continue';
+    if (missing(form.wildfire)) errors.wildfire = 'Provide WildFire to continue';
+    if (missing(form.resWorkerMedical)) errors.resWorkerMedical = 'Provide Residential Worker No-fault Medical to continue';
+    if (missing(form.landlordEndorsement)) errors.landlordEndorsement = 'Provide Landlord Endorsement to continue';
+    if (missing(form.homeOfficeEndorsement)) errors.homeOfficeEndorsement = 'Provide Home Office Endorsement to continue';
+    const isNewBusiness = form.screenCode === 'NEWBUSINESSINDIVIDUAL' || form.screenCode === 'NEWBUSINESSBUSINESS';
+    const showsPremiumPanel = !isLoggedInUserProducer || (isNewBusiness && !form.isBulkUploaded);
+    if (showsPremiumPanel && numberValue(form.priorPolicyPremium) <= 0) errors.priorPolicyPremium = 'Provide Prior Policy Period Premium to continue';
     return errors;
   }
+
+  useEffect(() => {
+    if (step3Attempted) setStep3Errors(validateStep3());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, step3Attempted]);
 
   function validateStep4(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -6054,6 +6153,11 @@ export default function NewSubmission() {
     if (flow === 'policy' || readOnly) {
       if (typeof nextStepValue === 'number') goToStep(nextStepValue);
       if (closeAfterSave) navigate(nbQuotesBackPath);
+      return;
+    }
+    // Manual New Submission quotes stop at Limits & Coverages until underwriting approval.
+    // Guard the action as well as the UI so stale buttons/URLs cannot advance the wizard.
+    if (step === 3 && isManualNewBusinessAwaitingApproval(form) && typeof nextStepValue === 'number' && nextStepValue > 3) {
       return;
     }
     // Validate current step before saving or navigating
@@ -6076,6 +6180,7 @@ export default function NewSubmission() {
           break;
         case 3:
           stepErrors = validateStep3();
+          setStep3Attempted(true);
           setStep3Errors(stepErrors);
           break;
         case 4:
@@ -6100,6 +6205,11 @@ export default function NewSubmission() {
           stepErrors = validateStep1();
           setStep1Errors(stepErrors);
           break;
+        case 3:
+          stepErrors = validateStep3();
+          setStep3Attempted(true);
+          setStep3Errors(stepErrors);
+          break;
       }
       if (Object.keys(stepErrors).length > 0) {
         // Even Save needs validation to prevent invalid state
@@ -6122,8 +6232,11 @@ export default function NewSubmission() {
     try {
       const nextStatus = form.recordStatus === 'Bound' ? 'Bound' : booleanValue(form.lockSubmission) ? 'Submitted' : valueOrFallback(form.recordStatus, 'Draft');
       const formForSave = withRecordIdentity(form, submissionId);
+      // approvalStatus is projected from policy.approval_status on read. It is derived state,
+      // not editable draft data, so do not copy it back into the submission JSON.
+      const { approvalStatus: _approvalStatus, ...persistedForm } = formForSave;
       const dataJson = JSON.stringify({
-        form: { ...formForSave, recordStatus: nextStatus },
+        form: { ...persistedForm, recordStatus: nextStatus },
         locations,
         mortgages,
         additionalInsureds,
@@ -6137,7 +6250,7 @@ export default function NewSubmission() {
       if (closeAfterSave) {
         window.setTimeout(() => navigate(nbQuotesBackPath), 800);
       }
-      window.setTimeout(() => setSaveState('idle'), 1500);
+      window.setTimeout(() => setSaveState('idle'), 3000);
     } catch (err) {
       console.error('Failed to save submission', err);
       setSaveState('error');
@@ -6180,8 +6293,12 @@ export default function NewSubmission() {
   const currentNextStep = nextStep();
   const currentPreviousStep = previousStep();
   const atLastStep = currentNextStep === step;
+  const awaitingManualQuoteApproval = isManualNewBusinessAwaitingApproval(scenarioForm);
   const insuredTypeSegment = String(scenarioForm.insuredType).toLowerCase() === 'business' ? 'business' : 'individual';
   const policyBackPath = `/quotes-policies/${insuredTypeSegment}/policies`;
+  const issuedPolicyTimelinePath = `/quotes-policies/policies/${encodeURIComponent(
+    valueOrFallback(scenarioForm.policyNumber, submissionId),
+  )}?screen=timeline&insuredType=${insuredTypeSegment}`;
   const nbQuotesBackPath = `/quotes-policies/${insuredTypeSegment}/nb-quotes`;
 
   async function handleBind() {
@@ -6237,7 +6354,7 @@ export default function NewSubmission() {
     return (
       <div className="qp-scope" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12 }}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>No Data Available</div>
-        <button onClick={() => navigate(-1)} style={{ padding: '8px 16px', borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+        <button onClick={() => navigate(nbQuotesBackPath)} style={{ padding: '8px 16px', borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           Back
         </button>
       </div>
@@ -6246,7 +6363,14 @@ export default function NewSubmission() {
 
   return (
     <div className="qp-scope" style={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
-      <WizardSidebar submissionId={recordId} status={currentStatus} currentStep={step} onStepClick={goToStep} screenCode={scenarioForm.screenCode} recordLabel={flowCopy.recordLabel} />
+      {saveState === 'saved' && (
+        <div className="bu-toast" role="status" aria-live="polite">
+          <span className="bu-toast__icon">&#10003;</span>
+          <span className="bu-toast__text">Saved Successfully</span>
+          <button className="bu-toast__close" type="button" aria-label="Close saved message" onClick={() => setSaveState('idle')}>&#215;</button>
+        </div>
+      )}
+      <WizardSidebar submissionId={recordId} status={currentStatus} currentStep={step} onStepClick={goToStep} screenCode={scenarioForm.screenCode} recordLabel={flowCopy.recordLabel} maxNavigableStep={awaitingManualQuoteApproval ? 3 : undefined} />
 
       <div className="wizard-page" style={{ flex: 1 }}>
         <div className="wizard-breadcrumb">
@@ -6267,10 +6391,10 @@ export default function NewSubmission() {
           {step === 0 && <StepPolicyInfo form={scenarioForm} set={set} additionalInsureds={additionalInsureds} setAdditionalInsureds={setAdditionalInsureds} additionalOrgs={additionalOrgs} setAdditionalOrgs={setAdditionalOrgs} intermediaryOptions={intermediaryOptions} producerOptions={producerOptions} isLoggedInUserProducer={isLoggedInUserProducer} isRenewalQuote={isRenewalQuote} errors={step0Errors} setErrors={setStep0Errors} />}
           {step === 1 && <StepLocation form={scenarioForm} set={set} locations={locations} setLocations={setLocations} />}
           {step === 2 && <StepRiskInfo form={scenarioForm} set={set} mortgages={mortgages} setMortgages={setMortgages} isLoggedInUserProducer={isLoggedInUserProducer} isRenewalQuote={isRenewalQuote} />}
-          {step === 3 && <StepLimits form={scenarioForm} set={set} isLoggedInUserProducer={isLoggedInUserProducer} />}
+          {step === 3 && <StepLimits form={scenarioForm} set={set} isLoggedInUserProducer={isLoggedInUserProducer} showApprovalNote={awaitingManualQuoteApproval} errors={step3Errors} />}
           {step === 4 && <StepPlans form={scenarioForm} set={set} />}
           {step === 5 && <StepQuoteReview form={scenarioForm} onEdit={() => goToStep(0)} />}
-          {step === 6 && <StepFinalize form={scenarioForm} set={set} submissionId={submissionId} flow={flow} onBind={handleBind} onIssue={handleIssue} onIssueEndorsement={handleIssueEndorsement} onDecline={handleDecline} onEdit={() => goToStep(0)} onPolicySummary={() => navigate(policyBackPath)} finalizeErrors={finalizeErrors} />}
+          {step === 6 && <StepFinalize form={scenarioForm} set={set} submissionId={submissionId} flow={flow} onBind={handleBind} onIssue={handleIssue} onIssueEndorsement={handleIssueEndorsement} onDecline={handleDecline} onEdit={() => goToStep(0)} onPolicySummary={() => navigate(issuedPolicyTimelinePath)} finalizeErrors={finalizeErrors} />}
           {step === 7 && <StepDocuments form={scenarioForm} flow={flow} submissionId={submissionId} />}
           {step === 8 && <StepUWSpecific form={scenarioForm} isRenewal={isRenewalQuote} />}
         </div>
@@ -6356,7 +6480,7 @@ export default function NewSubmission() {
                 )}
               <div style={{ position: 'relative' }}>
                 <button className="btn btn-outline" style={{ display: 'flex', gap: 4, alignItems: 'center' }} onClick={() => setShowCancelMenu(v => !v)}>
-                  {step === 4 ? 'Close' : 'Cancel'} &#8964;
+                  {step === 4 || (step === 3 && awaitingManualQuoteApproval) ? 'Close' : 'Cancel'} &#8964;
                 </button>
                 {showCancelMenu && (
                   <div className="dropdown-menu" onClick={() => setShowCancelMenu(false)}>
@@ -6375,11 +6499,11 @@ export default function NewSubmission() {
                 >
                   Previous
                 </button>
-                {step === 3 && !scenarioForm.isBulkUploaded && scenarioForm.insuredType === 'Business' ? (
-                  <button className="btn btn-primary" onClick={() => saveSubmission(undefined, true)} disabled={saveState === 'saving'}>{saveState === 'saving' ? 'Saving...' : saveState === 'saved' ? 'Saved Successfully' : saveState === 'error' ? 'Retry Save' : 'Save'}</button>
+                {step === 3 && awaitingManualQuoteApproval ? (
+                  <button className="btn btn-primary" onClick={() => saveSubmission()} disabled={saveState === 'saving'}>{saveState === 'saving' ? 'Saving...' : saveState === 'error' ? 'Retry Save' : 'Save'}</button>
                 ) : (
                   <>
-                    <button className="btn btn-outline" onClick={() => saveSubmission()} disabled={saveState === 'saving'}>{saveState === 'saving' ? 'Saving...' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Retry Save' : 'Save'}</button>
+                    <button className="btn btn-outline" onClick={() => saveSubmission()} disabled={saveState === 'saving'}>{saveState === 'saving' ? 'Saving...' : saveState === 'error' ? 'Retry Save' : 'Save'}</button>
                     {isEndorsementFlow && step === 4 && <button className="btn btn-outline-blue" onClick={() => saveSubmission(5)} disabled={saveState === 'saving'}>Go to Quote Review</button>}
                     {!atLastStep && <button className="btn btn-primary" onClick={() => saveSubmission(currentNextStep)} disabled={saveState === 'saving'}>Save &amp; Next</button>}
                   </>

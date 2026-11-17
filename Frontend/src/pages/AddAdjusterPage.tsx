@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { adjustersApi } from '../api/adjusters';
 import type { TempAdjusterLicenseDto, UpsertTempAdjusterRequest } from '../types/Adjuster';
 import SharedDatePicker from '../components/ui/DatePicker';
+import * as fv from '../utils/fieldValidation';
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,16 @@ const inputBase: CSSProperties = {
   padding: '0 10px', fontSize: 13, width: '100%', boxSizing: 'border-box', outline: 'none',
 };
 const sectionStyle: CSSProperties = { border: '1px solid #d8dee6', borderRadius: 4, background: '#fff' };
+const addressFieldMaxLengths: Partial<Record<keyof UpsertTempAdjusterRequest, number>> = {
+  registeredAddressLine1: fv.ADDRESS_LINE_MAX,
+  registeredAddressLine2: fv.ADDRESS_LINE_MAX,
+  registeredCity: fv.CITY_MAX,
+  registeredCounty: fv.COUNTY_MAX,
+  mailingAddressLine1: fv.ADDRESS_LINE_MAX,
+  mailingAddressLine2: fv.ADDRESS_LINE_MAX,
+  mailingCity: fv.CITY_MAX,
+  mailingCounty: fv.COUNTY_MAX,
+};
 
 const claimAccessRows = [
   'Claims Inquiry', 'Claims Dashboard', 'FNOL Registration', 'Bulk Claim Upload', 'Claims Authority',
@@ -87,6 +98,8 @@ function validateForm(form: UpsertTempAdjusterRequest, npn: string): Record<stri
 
   if (!form.telephoneNumber?.trim())        e.telephoneNumber = 'Provide Telephone Number to continue';
   else if (!/^\(\d{3}\) \d{3}-\d{4}$/.test(form.telephoneNumber)) e.telephoneNumber = 'Format must be (###) ###-####';
+  fv.checkPhone(e, 'alternativeTelephoneNumber', form.alternativeTelephoneNumber ?? undefined, 'Alternative Telephone Number');
+  fv.checkPhonesDiffer(e, 'telephoneNumber', 'alternativeTelephoneNumber', form.telephoneNumber, form.alternativeTelephoneNumber);
 
   if (!form.emailId?.trim())                e.emailId = 'Provide Email ID to continue';
   else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.emailId)) e.emailId = 'Provide a valid Email ID';
@@ -419,6 +432,7 @@ export default function AddAdjusterPage() {
         onChange={e => { set(key, e.target.value); clr(key as string); }}
         placeholder={placeholder}
         disabled={disabled}
+        maxLength={addressFieldMaxLengths[key]}
         style={{ ...inputBase, border: `1px solid ${hasErr ? '#c62828' : '#aeb7c2'}`, background: disabled ? '#e5e5e5' : hasErr ? '#fff5f5' : '#f6f8fb' }}
       />
     );

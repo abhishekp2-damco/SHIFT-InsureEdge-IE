@@ -23,7 +23,8 @@ public class UserRepository : IUserRepository
                 u.FirstName + " " + u.LastName,
                 u.Email,
                 (u.FirstName.Length > 0 ? u.FirstName.Substring(0, 1) : "") +
-                (u.LastName.Length > 0 ? u.LastName.Substring(0, 1) : "")))
+                (u.LastName.Length > 0 ? u.LastName.Substring(0, 1) : ""),
+                u.CreatedOn))
             .ToListAsync();
 
     public async Task<User?> GetByEmailAsync(string email, long clientId)

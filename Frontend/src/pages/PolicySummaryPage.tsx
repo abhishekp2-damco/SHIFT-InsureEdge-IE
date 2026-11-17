@@ -7,6 +7,8 @@ import { quotesPoliciesApi } from '../api/quotesPolicies';
 import { authApi } from '../api/auth';
 import type { PolicySummaryDto, PolicyTransactionDto, PolicyPendingTransactionDto, PolicyContactDto, PolicyBillingDetailDto, PolicyClaimRowDto, PolicyTimelineEntryDto, PolicyCancellationPreview, CancelRewritePreview, CancelRewriteResult, NoticeOfNonRenewalInfo, NoteDto, NoteFileDto } from '../types/Policy';
 import { FilterPopup, FunnelIcon, evalOp, type AppliedFilters, type ColFilter, type SortState } from './QuotesPolicies/GridHelpers';
+import { useSessionState } from '../hooks/useSessionState';
+import { PolicyTimelinePanel } from './PolicyTimelinePanel';
 
 type MenuKey = 'summary' | 'contacts' | 'billing' | 'pending' | 'history' | 'claims' | 'notes' | 'timeline';
 
@@ -34,17 +36,26 @@ const titleByKey: Record<MenuKey, string> = {
 
 const fmtCurrency = (value: number | null | undefined) => (value ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const billingDisplayValue = (value: string | null | undefined) => {
+  const text = value?.trim();
+  if (!text) return '-';
+  return text
+    .toLocaleLowerCase('en-US')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\p{L}/gu, letter => letter.toLocaleUpperCase('en-US'));
+};
+
 type BillingSeriesItem = { key: string; label: string; value: number; color: string };
 
 // QA IP-19 / IP-20 / IP-27: Producers get Endorse only and read-only Notes. The API enforces
 // the same rules ([ProducerForbidden]).
 function useIsProducerLogin() {
-  const [isProducerLogin, setIsProducerLogin] = useState(false);
+  const [isProducerLogin, setIsProducerLogin] = useState<boolean | null>(null);
   useEffect(() => {
     let cancelled = false;
     authApi.getMyProducer()
       .then(result => { if (!cancelled) setIsProducerLogin(Boolean(result.producer)); })
-      .catch(() => { if (!cancelled) setIsProducerLogin(false); });
+      .catch(() => { if (!cancelled) setIsProducerLogin(true); });
     return () => { cancelled = true; };
   }, []);
   return isProducerLogin;
@@ -78,6 +89,18 @@ function NoRenewIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0B5AA0" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12a8 8 0 0 1 13.66-5.66" /><path d="M20 12a8 8 0 0 1-13.66 5.66" /><path d="M17 3v4h-4" /><path d="M7 21v-4h4" /><path d="M3 3l18 18" /></svg>;
 }
 
+function CoveragePremiumIcon() {
+  return <svg aria-hidden="true" width="42" height="42" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5h18l8 8v28H11z" /><path d="M29 5v9h8" /><path d="M32.5 24.5c-1.2-1-2.9-1.6-4.7-1.6-2.7 0-4.8 1.5-4.8 3.6 0 5.3 10.5 2.5 10.5 7.8 0 2.2-2.2 3.8-5.1 3.8-2.1 0-4.2-.8-5.6-2.1" /><path d="M28 20v21" /></svg>;
+}
+
+function HandCoinsIcon() {
+  return <svg aria-hidden="true" width="44" height="44" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><circle cx="30" cy="13" r="7" /><path d="M8 37h6l6-6h9c2.2 0 4-1.8 4-4H21" /><path d="M14 37l6 5 17-9c2-1.1 3-3.6 2-5.7-.8-1.7-2.7-2.5-4.4-1.9L29 27" /><path d="M8 32v8" /></svg>;
+}
+
+function TotalPremiumIcon() {
+  return <svg aria-hidden="true" width="42" height="42" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round"><path d="M10 5h19l8 8v28H10z" /><path d="M29 5v9h8" /><circle cx="25" cy="25" r="3" /><circle cx="34" cy="34" r="3" /><path d="M35 23 23 36" /></svg>;
+}
+
 const TOOLS_MENU_ITEMS: { label: string; icon: () => JSX.Element }[] = [
   { label: 'Endorse Policy', icon: DocEditIcon },
   { label: 'Cancel Policy', icon: DocEditIcon },
@@ -85,7 +108,7 @@ const TOOLS_MENU_ITEMS: { label: string; icon: () => JSX.Element }[] = [
   { label: 'Do Not Renew', icon: NoRenewIcon },
 ];
 
-// ─── Do Not Renew (frontend-only for now — no backend wired yet) ────────────
+// â”€â”€â”€ Do Not Renew (frontend-only for now â€” no backend wired yet) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const OUR_NONRENEWAL_REASONS: { num: string; text: string; indent: number; checkbox: boolean }[] = [
   { num: '1', text: 'Breach of underwriting warranty:', indent: 0, checkbox: true },
@@ -163,7 +186,7 @@ function CollapsiblePanel({ title, defaultOpen = false, children }: { title: str
         onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '12px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#111827' }}
       >
-        <span style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #9ca3af', borderRadius: '50%', fontSize: 12, lineHeight: 1 }}>{open ? '−' : '+'}</span>
+        <span style={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #9ca3af', borderRadius: '50%', fontSize: 12, lineHeight: 1 }}>{open ? 'âˆ’' : '+'}</span>
         {title}
       </button>
       {open && <div style={{ padding: '0 16px 16px', borderTop: '1px solid #e5e7eb' }}>{children}</div>}
@@ -171,7 +194,7 @@ function CollapsiblePanel({ title, defaultOpen = false, children }: { title: str
   );
 }
 
-// Direct-children index map for OUR_NONRENEWAL_REASONS (built once from the num strings) —
+// Direct-children index map for OUR_NONRENEWAL_REASONS (built once from the num strings) â€”
 // a parent row's checkbox is never independently clickable: with exactly one child it
 // mirrors that child; with multiple children it's the logical OR of all of them.
 const NONRENEWAL_CHILDREN: number[][] = OUR_NONRENEWAL_REASONS.map((item, i) => {
@@ -281,7 +304,7 @@ function DoNotRenewModal({ insuredType, policyNumber, onAbort, onSubmitted }: {
       <div style={{ background: '#fff', borderRadius: 8, width: 860, maxWidth: '94vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Do Not Renew</h3>
-          <button onClick={onAbort} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280' }}>×</button>
+          <button onClick={onAbort} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6b7280' }}>Ã—</button>
         </div>
         <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           <CollapsiblePanel title="Policy Nonrenewal Notice" defaultOpen>
@@ -393,14 +416,14 @@ function DoNotRenewModal({ insuredType, policyNumber, onAbort, onSubmitted }: {
           {error && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#7a1620', color: '#fff', borderRadius: 4, padding: '12px 16px', marginTop: 4 }}>
               <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{error}</span>
-              <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>×</button>
+              <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>Ã—</button>
             </div>
           )}
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 20px', borderTop: '1px solid #e5e7eb' }}>
           <button onClick={onAbort} disabled={submitting} style={{ padding: '9px 18px', borderRadius: 4, border: '1px solid #d1d5db', background: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Abort</button>
           <button onClick={handleSubmit} disabled={submitting} style={{ padding: '9px 18px', borderRadius: 4, border: 'none', background: '#0B5AA0', color: '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
-            {submitting ? 'Please wait…' : 'Submit'}
+            {submitting ? 'Please waitâ€¦' : 'Submit'}
           </button>
         </div>
       </div>
@@ -427,7 +450,7 @@ const RICH_TEXT_COMMANDS: { label: string; command: string; value?: string }[] =
 function RichTextEditor({ value, onChange }: { value: string; onChange: (html: string) => void }) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // Set the DOM content once on mount only — NOT on every render via dangerouslySetInnerHTML.
+  // Set the DOM content once on mount only â€” NOT on every render via dangerouslySetInnerHTML.
   // onInput below reports changes back to the parent's `value` state, which would otherwise
   // re-render this component with that same `value` and reassign innerHTML on every keystroke,
   // resetting the cursor to position 0 and making each new character get inserted at the start
@@ -459,11 +482,11 @@ function RichTextEditor({ value, onChange }: { value: string; onChange: (html: s
           </button>
         ))}
         <span style={{ width: 1, background: '#d1d5db', margin: '2px 4px' }} />
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('insertUnorderedList')} title="Bullet list" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>•≡</button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('insertOrderedList')} title="Numbered list" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>1.≡</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('insertUnorderedList')} title="Bullet list" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>â€¢â‰¡</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('insertOrderedList')} title="Numbered list" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>1.â‰¡</button>
         <span style={{ width: 1, background: '#d1d5db', margin: '2px 4px' }} />
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('undo')} title="Undo" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>↶</button>
-        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('redo')} title="Redo" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>↷</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('undo')} title="Undo" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>â†¶</button>
+        <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => exec('redo')} title="Redo" style={{ width: 26, height: 26, border: '1px solid #d1d5db', borderRadius: 3, background: '#fff', fontSize: 12, cursor: 'pointer' }}>â†·</button>
       </div>
       <div
         ref={ref}
@@ -521,7 +544,7 @@ function EndorsementDetailsModal({ policyEffectiveDate, onCancel, onContinue }: 
       <div style={{ background: '#fff', borderRadius: 8, width: 560, maxWidth: '92vw', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
           <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Endorsement Details</h3>
-          <button onClick={onCancel} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6b7280' }}>×</button>
+          <button onClick={onCancel} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6b7280' }}>Ã—</button>
         </div>
         <div style={{ padding: 20 }}>
           <label style={{ display: 'block', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>* Transaction Effective Date</label>
@@ -545,7 +568,7 @@ function EndorsementDetailsModal({ policyEffectiveDate, onCancel, onContinue }: 
             disabled={submitting || !effectiveDate || !summary.replace(/<[^>]*>/g, '').trim()}
             style={{ padding: '9px 18px', borderRadius: 4, border: 'none', background: '#0B5AA0', color: '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1 }}
           >
-            {submitting ? 'Please wait…' : 'Continue'}
+            {submitting ? 'Please waitâ€¦' : 'Continue'}
           </button>
         </div>
       </div>
@@ -603,7 +626,7 @@ function ToolsMenu({ insuredType, policyNumber, policyStatus, policyEffectiveDat
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showDoNotRenew, setShowDoNotRenew] = useState(false);
   const [showRemoveDoNotRenewConfirm, setShowRemoveDoNotRenewConfirm] = useState(false);
-  const isProducerLogin = useIsProducerLogin();
+const isProducerLogin = useIsProducerLogin();
   const ref = useRef<HTMLDivElement>(null);
   const isDoNotRenew = policyStatus === 'DONOTRENEW';
   const canEndorse = policyStatus === 'Active' || policyStatus === 'Bound';
@@ -611,8 +634,8 @@ function ToolsMenu({ insuredType, policyNumber, policyStatus, policyEffectiveDat
   const canCancelRewrite = policyStatus === 'Active';
   const canDoNotRenew = policyStatus === 'Active';
 
-  const items = TOOLS_MENU_ITEMS
-    .filter(item => !isProducerLogin || item.label === 'Endorse Policy')
+const items = TOOLS_MENU_ITEMS
+    .filter(item => isProducerLogin === false || item.label === 'Endorse Policy')
     .map(item => item.label === 'Do Not Renew' && isDoNotRenew ? { ...item, label: 'Remove Do Not Renew' } : item);
 
   useEffect(() => {
@@ -645,7 +668,7 @@ function ToolsMenu({ insuredType, policyNumber, policyStatus, policyEffectiveDat
         onClick={() => setOpen(o => !o)}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0B5AA0', color: '#fff', border: 'none', borderRadius: 4, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
       >
-        Tools ⌄
+        Tools âŒ„
       </button>
       {open && (
         <div style={{ position: 'absolute', top: '110%', right: 0, width: 240, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, boxShadow: '0 8px 24px rgba(15,23,42,0.14)', zIndex: 100, padding: '14px 0' }}>
@@ -785,9 +808,9 @@ function CancelPolicyContent({ insuredType, policyNumber, policyEffectiveDate, o
     <>
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#7a1620', color: '#fff', borderRadius: 4, padding: '12px 16px', marginBottom: 16 }}>
-          <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', color: '#7a1620', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</span>
+          <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', color: '#7a1620', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>âœ•</span>
           <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>×</button>
+          <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>Ã—</button>
         </div>
       )}
       <Section title="Cancellation Details">
@@ -877,7 +900,7 @@ function CancelPolicyContent({ insuredType, policyNumber, policyEffectiveDate, o
           disabled={!canSubmit}
           style={{ padding: '9px 18px', borderRadius: 4, border: 'none', background: canSubmit ? '#0B5AA0' : '#93c5fd', color: '#fff', fontSize: 13, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}
         >
-          {submitting ? 'Please wait…' : 'Submit Cancellation'}
+          {submitting ? 'Please waitâ€¦' : 'Submit Cancellation'}
         </button>
       </div>
     </>
@@ -952,9 +975,9 @@ function CancelRewriteContent({ insuredType, policyNumber, policyEffectiveDate, 
     <>
       {error && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#7a1620', color: '#fff', borderRadius: 4, padding: '12px 16px', marginBottom: 16 }}>
-          <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', color: '#7a1620', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</span>
+          <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#fff', color: '#7a1620', fontSize: 13, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>âœ•</span>
           <span style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>×</button>
+          <button onClick={() => setError(null)} style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: 16, cursor: 'pointer' }}>Ã—</button>
         </div>
       )}
       <Section title="Cancellation Details">
@@ -1043,7 +1066,7 @@ function CancelRewriteContent({ insuredType, policyNumber, policyEffectiveDate, 
           disabled={!canSubmit}
           style={{ padding: '9px 18px', borderRadius: 4, border: 'none', background: canSubmit ? '#0B5AA0' : '#93c5fd', color: '#fff', fontSize: 13, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}
         >
-          {submitting ? 'Please wait…' : 'Proceed with Rewrite'}
+          {submitting ? 'Please waitâ€¦' : 'Proceed with Rewrite'}
         </button>
       </div>
     </>
@@ -1112,61 +1135,79 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function KpiTile({ label, value, valueColor = '#111827', icon: Icon }: { label: string; value: string; valueColor?: string; icon?: LucideIcon }) {
+function KpiTile({ label, value, valueColor = '#111827', icon }: { label: string; value: string; valueColor?: string; icon?: ReactNode }) {
   return (
-    <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, border: '1px solid #e5e7eb', borderRadius: 6, padding: '14px 16px', background: '#fafbfc' }}>
-      <div>
-        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>{label}</div>
-        <div style={{ fontSize: 18, fontWeight: 800, color: valueColor }}>{value}</div>
+    <div style={{ flex: 1, minWidth: 0, minHeight: 68, border: '1px solid #d8dde6', borderRadius: 4, padding: '10px 14px', background: '#f7f8fb', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, lineHeight: 1.25, color: '#4b5563', marginBottom: 5 }}>{label}</div>
+        <div style={{ fontSize: 17, lineHeight: 1.2, fontWeight: 800, color: valueColor, whiteSpace: 'nowrap' }}>{value}</div>
       </div>
-      {Icon && <Icon size={26} color={valueColor} style={{ flexShrink: 0 }} aria-hidden="true" />}
+      {icon && <div style={{ color: valueColor, display: 'inline-flex', flex: '0 0 auto' }}>{icon}</div>}
     </div>
   );
 }
 
-// QA IP-25 / IP-26: currency and icons on the four premium tiles. The icons are placeholders
-// until the OutSystems assets are supplied.
 function FinancialTiles({ financials }: { financials: PolicySummaryDto['financials'] | undefined }) {
-  const usd = (value: number | null | undefined) => `USD ${fmtCurrency(value)}`;
   return (
     <div style={{ display: 'flex', gap: 16 }}>
-      <KpiTile label="Coverage Premium" value={usd(financials?.coveragePremium)} valueColor="#0B5AA0" icon={ShieldCheck} />
-      <KpiTile label="Taxes" value={usd(financials?.taxes)} valueColor="#0B5AA0" icon={Landmark} />
-      <KpiTile label="Fees" value={usd(financials?.fees)} valueColor="#c26a1a" icon={Receipt} />
-      <KpiTile label="Total Premium" value={usd(financials?.totalPremium)} valueColor="#111827" icon={Wallet} />
+      <KpiTile label="Coverage Premium" value={`USD ${fmtCurrency(financials?.coveragePremium)}`} valueColor="#008c55" icon={<CoveragePremiumIcon />} />
+      <KpiTile label="Taxes" value={`USD ${fmtCurrency(financials?.taxes)}`} valueColor="#0B5AA0" icon={<HandCoinsIcon />} />
+      <KpiTile label="Fees" value={`USD ${fmtCurrency(financials?.fees)}`} valueColor="#d17b00" icon={<HandCoinsIcon />} />
+      <KpiTile label="Total Premium" value={`USD ${fmtCurrency(financials?.totalPremium)}`} valueColor="#20242b" icon={<TotalPremiumIcon />} />
     </div>
   );
 }
 
 function BillingDonutChart({ series }: { series: BillingSeriesItem[] }) {
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const total = series.reduce((sum, item) => sum + item.value, 0);
+  const activeItem = series.find(item => item.key === activeKey) ?? null;
+  const activePercentage = activeItem && total > 0 ? (activeItem.value / total) * 100 : 0;
   const radius = 60;
   const circumference = 2 * Math.PI * radius;
   let offsetAcc = 0;
   return (
-    <svg width="160" height="160" viewBox="0 0 160 160">
-      <g transform="rotate(-90 80 80)">
-        {total === 0
-          ? <circle cx="80" cy="80" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="24" />
-          : series.filter(item => item.value > 0).map(item => {
-            const fraction = item.value / total;
-            const dash = fraction * circumference;
-            const el = (
-              <circle
-                key={item.key}
-                cx="80" cy="80" r={radius}
-                fill="none"
-                stroke={item.color}
-                strokeWidth="24"
-                strokeDasharray={`${dash} ${circumference - dash}`}
-                strokeDashoffset={-offsetAcc}
-              />
-            );
-            offsetAcc += dash;
-            return el;
-          })}
-      </g>
-    </svg>
+    <div className="policy-billing-donut">
+      {activeItem && (
+        <div className="policy-billing-tooltip" role="status">
+          <span>{activeItem.label}</span>
+          <strong>{activePercentage.toFixed(1)}%</strong>
+          <span>USD {fmtCurrency(activeItem.value)}</span>
+        </div>
+      )}
+      <svg width="160" height="160" viewBox="0 0 160 160" aria-label="Billing share chart">
+        <g transform="rotate(-90 80 80)">
+          {total === 0
+            ? <circle cx="80" cy="80" r={radius} fill="none" stroke="#e5e7eb" strokeWidth="24" />
+            : series.filter(item => item.value > 0).map(item => {
+              const fraction = item.value / total;
+              const dash = fraction * circumference;
+              const el = (
+                <circle
+                  key={item.key}
+                  className="policy-billing-segment"
+                  cx="80" cy="80" r={radius}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={activeKey === item.key ? 27 : 24}
+                  strokeDasharray={`${dash} ${circumference - dash}`}
+                  strokeDashoffset={-offsetAcc}
+                  opacity={activeKey && activeKey !== item.key ? 0.25 : 1}
+                  role="img"
+                  tabIndex={0}
+                  aria-label={`${item.label}: ${fraction * 100}% of billing, USD ${fmtCurrency(item.value)}`}
+                  onMouseEnter={() => setActiveKey(item.key)}
+                  onMouseLeave={() => setActiveKey(null)}
+                  onFocus={() => setActiveKey(item.key)}
+                  onBlur={() => setActiveKey(null)}
+                />
+              );
+              offsetAcc += dash;
+              return el;
+            })}
+        </g>
+      </svg>
+    </div>
   );
 }
 
@@ -1223,11 +1264,18 @@ const na = (value: string | null | undefined) => value ?? '-';
 
 function PolicyInformationCard({ summary, policyId }: { summary: PolicySummaryDto | null; policyId: string }) {
   const navigate = useNavigate();
+  const policyNumber = summary?.policyNumber ?? policyId;
+  const submissionId = summary?.submissionId;
   return (
     <Section title="Policy Information" actions={
       <button
-        onClick={() => navigate(`/quotes-policies/submissions/${policyId}?readOnly=1`)}
-        style={{ height: 34, minWidth: 110, border: '1px solid #0B5AA0', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 700, cursor: 'pointer' }}
+        onClick={() => {
+          if (!submissionId) return;
+          navigate(`/quotes-policies/submissions/${encodeURIComponent(submissionId)}?readOnly=1&policyNumber=${encodeURIComponent(policyNumber)}`);
+        }}
+        disabled={!submissionId}
+        title={submissionId ? 'View Policy' : 'The backing policy submission is unavailable'}
+        style={{ height: 34, minWidth: 110, border: '1px solid #0B5AA0', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 700, cursor: submissionId ? 'pointer' : 'not-allowed', opacity: submissionId ? 1 : 0.6 }}
       >
         View Policy
       </button>
@@ -1248,9 +1296,37 @@ function PolicyInformationCard({ summary, policyId }: { summary: PolicySummaryDt
 
 // QA IP-23: long addresses are truncated with the full value on hover.
 function AddressCell({ address }: { address: string | null | undefined }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const fullAddress = address?.trim() ?? '';
+  const isLongAddress = fullAddress.length > 40;
+
   return (
-    <td style={{ padding: '10px 12px', maxWidth: 280 }} title={address ?? undefined}>
-      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{na(address)}</div>
+    <td style={{ padding: '10px 12px', maxWidth: 280 }}>
+      <div
+        tabIndex={isLongAddress ? 0 : undefined}
+        aria-label={fullAddress || undefined}
+        onMouseEnter={() => isLongAddress && setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onFocus={() => isLongAddress && setShowTooltip(true)}
+        onBlur={() => setShowTooltip(false)}
+        style={{ position: 'relative', overflow: 'visible' }}
+      >
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{na(fullAddress)}</div>
+        {showTooltip && (
+          <span
+            role="tooltip"
+            style={{
+              position: 'absolute', zIndex: 20, left: 0, bottom: 'calc(100% + 6px)',
+              width: 'max-content', maxWidth: 420, padding: '8px 10px', borderRadius: 4,
+              background: '#fff', color: '#1f2937', border: '1px solid #d1d5db',
+              fontSize: 12, lineHeight: 1.45, whiteSpace: 'normal', overflowWrap: 'anywhere',
+              boxShadow: '0 4px 12px rgba(0,0,0,.15)',
+            }}
+          >
+            {fullAddress}
+          </span>
+        )}
+      </div>
     </td>
   );
 }
@@ -1265,16 +1341,16 @@ const CONTACT_COLS: { key: ContactColKey; label: string }[] = [
 
 function contactCell(row: PolicyContactDto, key: ContactColKey): string {
   if (key === 'name') return row.name ?? '';
-  if (key === 'phone') return fv.formatPhone(row.phone);
+  if (key === 'phone') return fv.formatPhoneView(row.phone);
   if (key === 'email') return row.email ?? '';
   return row.address ?? '';
 }
 
-function ContactsContent({ summary, policyId }: { summary: PolicySummaryDto | null; policyId: string }) {
+function ContactsContent({ summary, policyId, insuredType }: { summary: PolicySummaryDto | null; policyId: string; insuredType: string }) {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState | null>(null);
-  const [filters, setFilters] = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>(`grid-filters:policy-summary:${policyId}:contacts`, {});
   const [filterPopup, setFilterPopup] = useState<{ col: ContactColKey; anchor: { top: number; left: number } } | null>(null);
 
   const contacts = summary?.contacts ?? [];
@@ -1344,7 +1420,7 @@ function ContactsContent({ summary, policyId }: { summary: PolicySummaryDto | nu
                     <th key={col.key} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid #e5e7eb', fontWeight: 700, color: hasFilter ? '#0B5AA0' : '#374151' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
-                          {col.label}{isSort && (sort!.dir === 'asc' ? ' ↑' : ' ↓')}
+                          {col.label}{isSort && (sort!.dir === 'asc' ? ' â†‘' : ' â†“')}
                         </span>
                         <button
                           onClick={e => openFilter(col.key, e)}
@@ -1365,7 +1441,7 @@ function ContactsContent({ summary, policyId }: { summary: PolicySummaryDto | nu
                 <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                   <td style={{ padding: '10px 12px', color: '#9ca3af' }}>{i + 1}</td>
                   <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{na(row.name)}</td>
-                  <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{fv.formatPhone(row.phone) || '-'}</td>
+                  <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{fv.formatPhoneView(row.phone) || '-'}</td>
                   <td style={{ padding: '10px 12px', color: '#0B5AA0' }}>{na(row.email)}</td>
                   <AddressCell address={row.address} />
                 </tr>
@@ -1387,7 +1463,7 @@ function ContactsContent({ summary, policyId }: { summary: PolicySummaryDto | nu
       </Section>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => navigate(-1)} style={{ height: 34, minWidth: 100, border: '1px solid #d1d5db', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Back</button>
+        <button onClick={() => navigate(`/quotes-policies/${insuredType}/policies`)} style={{ height: 34, minWidth: 100, border: '1px solid #d1d5db', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Back</button>
       </div>
     </>
   );
@@ -1412,7 +1488,7 @@ function PendingTransactionsContent({ policyId, insuredType, summary }: { policy
   const [rows, setRows] = useState<PolicyPendingTransactionDto[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState | null>(null);
-  const [filters, setFilters] = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>(`grid-filters:policy-summary:${policyId}:pending`, {});
   const [filterPopup, setFilterPopup] = useState<{ col: PendingColKey; anchor: { top: number; left: number } } | null>(null);
 
   useEffect(() => {
@@ -1487,7 +1563,7 @@ function PendingTransactionsContent({ policyId, insuredType, summary }: { policy
                     <th key={col.key} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid #e5e7eb', fontWeight: 700, color: hasFilter ? '#0B5AA0' : '#374151' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
-                          {col.label}{isSort && (sort!.dir === 'asc' ? ' ↑' : ' ↓')}
+                          {col.label}{isSort && (sort!.dir === 'asc' ? ' â†‘' : ' â†“')}
                         </span>
                         <button
                           onClick={e => openFilter(col.key, e)}
@@ -1558,7 +1634,7 @@ function BillingContent({ policyId, insuredType, summary }: { policyId: string; 
 
   return (
     <>
-      {/* QA IP-24 */}
+{/* QA IP-24 */}
       <PolicyInformationCard summary={summary} policyId={policyId} />
 
       <Section title="Summary">
@@ -1567,8 +1643,8 @@ function BillingContent({ policyId, insuredType, summary }: { policyId: string; 
 
       <Section title="Premium Payment Details">
         <ReadGrid columns={5} items={[
-          { label: 'Payment Frequency', value: na(detail?.paymentFrequency) },
-          { label: 'Responsible Party', value: na(detail?.responsibleParty) },
+          { label: 'Payment Frequency', value: billingDisplayValue(detail?.paymentFrequency) },
+          { label: 'Responsible Party', value: billingDisplayValue(detail?.responsibleParty) },
           { label: 'Mode of Payment', value: na(detail?.modeOfPayment) },
           { label: 'Number of Installment', value: detail ? String(detail.numberOfInstallments).padStart(2, '0') : '-' },
           { label: 'Installment Fee', value: detail ? `USD ${fmt(detail.installmentFee)}` : '-' },
@@ -1644,7 +1720,7 @@ function BillingContent({ policyId, insuredType, summary }: { policyId: string; 
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => navigate(-1)} style={{ height: 34, minWidth: 100, border: '1px solid #d1d5db', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Back</button>
+        <button onClick={() => navigate(`/quotes-policies/${insuredType}/policies`)} style={{ height: 34, minWidth: 100, border: '1px solid #d1d5db', background: '#fff', color: '#0B5AA0', borderRadius: 4, fontWeight: 600, cursor: 'pointer' }}>Back</button>
       </div>
     </>
   );
@@ -1670,7 +1746,7 @@ function PolicyHistoryContent({ policyId, insuredType, summary }: { policyId: st
   const [rows, setRows] = useState<PolicyTransactionDto[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState | null>(null);
-  const [filters, setFilters] = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>(`grid-filters:policy-summary:${policyId}:history`, {});
   const [filterPopup, setFilterPopup] = useState<{ col: HistoryColKey; anchor: { top: number; left: number } } | null>(null);
 
   useEffect(() => {
@@ -1745,7 +1821,7 @@ function PolicyHistoryContent({ policyId, insuredType, summary }: { policyId: st
                     <th key={col.key} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid #e5e7eb', fontWeight: 700, color: hasFilter ? '#0B5AA0' : '#374151' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
-                          {col.label}{isSort && (sort!.dir === 'asc' ? ' ↑' : ' ↓')}
+                          {col.label}{isSort && (sort!.dir === 'asc' ? ' â†‘' : ' â†“')}
                         </span>
                         <button
                           onClick={e => openFilter(col.key, e)}
@@ -1818,7 +1894,7 @@ function ClaimsContent({ policyId, insuredType, summary }: { policyId: string; i
   const [rows, setRows] = useState<PolicyClaimRowDto[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState | null>(null);
-  const [filters, setFilters] = useState<AppliedFilters>({});
+  const [filters, setFilters] = useSessionState<AppliedFilters>(`grid-filters:policy-summary:${policyId}:claims`, {});
   const [filterPopup, setFilterPopup] = useState<{ col: ClaimColKey; anchor: { top: number; left: number } } | null>(null);
 
   useEffect(() => {
@@ -1893,7 +1969,7 @@ function ClaimsContent({ policyId, insuredType, summary }: { policyId: string; i
                     <th key={col.key} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid #e5e7eb', fontWeight: 700, color: hasFilter ? '#0B5AA0' : '#374151' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span style={{ cursor: 'pointer' }} onClick={() => handleSort(col.key)}>
-                          {col.label}{isSort && (sort!.dir === 'asc' ? ' ↑' : ' ↓')}
+                          {col.label}{isSort && (sort!.dir === 'asc' ? ' â†‘' : ' â†“')}
                         </span>
                         <button
                           onClick={e => openFilter(col.key, e)}
@@ -2013,7 +2089,7 @@ function AddNoteModal({ insuredType, policyId, note, onClose, onSaved }: {
       <div style={{ background: '#fff', borderRadius: 8, width: 820, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #e5e7eb' }}>
           <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>{isEditing ? 'Edit Note' : 'Add Note'}</h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6b7280' }}>×</button>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 18, cursor: 'pointer', color: '#6b7280' }}>Ã—</button>
         </div>
         <div style={{ padding: 20, display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 24 }}>
           <div>
@@ -2044,7 +2120,7 @@ function AddNoteModal({ insuredType, policyId, note, onClose, onSaved }: {
                 onClick={() => fileInputRef.current?.click()}
                 style={{ padding: '7px 14px', borderRadius: 4, border: '1px solid #0B5AA0', background: '#fff', color: '#0B5AA0', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
               >
-                📂 Browse File
+                ðŸ“‚ Browse File
               </button>
             </div>
 
@@ -2094,7 +2170,7 @@ function AddNoteModal({ insuredType, policyId, note, onClose, onSaved }: {
             disabled={!canSubmit}
             style={{ padding: '9px 18px', borderRadius: 4, border: 'none', background: canSubmit ? '#0B5AA0' : '#93c5fd', color: '#fff', fontSize: 13, fontWeight: 700, cursor: canSubmit ? 'pointer' : 'default' }}
           >
-            {submitting ? 'Please wait…' : isEditing ? 'Save' : 'Add'}
+            {submitting ? 'Please waitâ€¦' : isEditing ? 'Save' : 'Add'}
           </button>
         </div>
       </div>
@@ -2158,7 +2234,7 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
   const [notes, setNotes] = useState<NoteDto[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<NoteDto | null>(null);
-  const isProducerLogin = useIsProducerLogin();
+const isProducerLogin = useIsProducerLogin();
 
   const refetch = () => {
     if (!policyId) return;
@@ -2167,17 +2243,19 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
 
   useEffect(refetch, [policyId, insuredType]);
 
+  
+
   return (
     <Section
       title="Notes"
-      actions={isProducerLogin ? undefined : (
+actions={isProducerLogin === false ? (
         <button
           onClick={() => { setEditingNote(null); setModalOpen(true); }}
           style={{ height: 34, minWidth: 84, border: 'none', background: '#0B5AA0', color: '#fff', borderRadius: 4, fontWeight: 700, cursor: 'pointer' }}
         >
           + Add
         </button>
-      )}
+) : null}
     >
       {notes.length === 0 ? <EmptyState /> : notes.map(n => (
         <NoteCard
@@ -2187,7 +2265,7 @@ function NotesSection({ policyId, insuredType }: { policyId: string; insuredType
           policyId={policyId}
           onEdit={() => { setEditingNote(n); setModalOpen(true); }}
           onDeleted={refetch}
-          readOnly={isProducerLogin}
+          readOnly={isProducerLogin !== false}
         />
       ))}
       {modalOpen && (
@@ -2212,63 +2290,49 @@ function NotesContent({ policyId, insuredType, summary }: { policyId: string; in
   );
 }
 
-function TimelineContent({ policyId, insuredType, summary }: { policyId: string; insuredType: string; summary: PolicySummaryDto | null }) {
+function TimelineContent({ policyId, insuredType }: { policyId: string; insuredType: string }) {
   const [entries, setEntries] = useState<PolicyTimelineEntryDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!policyId) return;
-    quotesPoliciesApi.getTimeline(insuredType, policyId)
-      .then(setEntries)
-      .catch(() => setEntries([]));
+    let cancelled = false;
+    const loadTimeline = (showLoading: boolean) => {
+      if (showLoading) {
+        setLoading(true);
+        setEntries([]);
+      }
+      setError(null);
+      quotesPoliciesApi.getTimeline(insuredType, policyId)
+        .then(result => {
+          if (cancelled) return;
+          if (!Array.isArray(result)) throw new Error('Invalid Timeline response');
+          setEntries(result);
+        })
+        .catch(() => {
+          if (!cancelled) setError('Unable to load the policy timeline. Please try again.');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    loadTimeline(true);
+    const refreshOnFocus = () => loadTimeline(false);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') loadTimeline(false);
+    };
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
   }, [policyId, insuredType]);
 
-  const groups = useMemo(() => {
-    const byDate = new Map<string, PolicyTimelineEntryDto[]>();
-    for (const e of entries) {
-      const list = byDate.get(e.createdDate) ?? [];
-      list.push(e);
-      byDate.set(e.createdDate, list);
-    }
-    return Array.from(byDate.entries()).map(([date, items]) => ({ date, items }));
-  }, [entries]);
-
-  return (
-    <>
-      <PolicyInformationCard summary={summary} policyId={policyId} />
-
-      <Section title={`Total Transactions – ${entries.length}`}>
-        {groups.length === 0 ? <EmptyState /> : (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, overflowX: 'auto', paddingBottom: 8 }}>
-            {groups.map((group, gi) => (
-              <div key={group.date} style={{ display: 'flex', alignItems: 'flex-start', flexShrink: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginRight: 8 }}>
-                  <span style={{ display: 'inline-block', border: '1px solid #0B5AA0', color: '#0B5AA0', borderRadius: 999, padding: '4px 14px', fontSize: 13, fontWeight: 600, background: '#fff', whiteSpace: 'nowrap' }}>
-                    {group.date}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', marginTop: 10, marginRight: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', border: '1px solid #94a3b8', background: '#fff', flexShrink: 0 }} />
-                  {gi < groups.length - 1 && <span style={{ width: 40, height: 1, background: '#cbd5e1' }} />}
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginRight: 24 }}>
-                  {group.items.map((entry, ei) => (
-                    <div key={ei} style={{ minWidth: 220, border: '1px solid #e5e7eb', borderRadius: 6, padding: 12, background: '#fafbfc' }}>
-                      <span style={{ display: 'inline-block', border: '1px solid #0B5AA0', color: '#0B5AA0', borderRadius: 4, padding: '2px 10px', fontSize: 12, fontWeight: 600, marginBottom: 10 }}>
-                        {entry.activityDescription}
-                      </span>
-                      <div style={{ fontSize: 12, color: '#6b7280' }}>Created By</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 6 }}>{entry.createdByName ?? 'System'}</div>
-                      <div style={{ fontSize: 11, fontStyle: 'italic', color: '#9ca3af' }}>Timestamp: {entry.createdDate}, {entry.createdTime}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
-    </>
-  );
+  return <PolicyTimelinePanel entries={entries} loading={loading} error={error} />;
 }
 
 function billingSeriesFrom(billing: PolicySummaryDto['billing']): BillingSeriesItem[] {
@@ -2317,30 +2381,39 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
       </Section>
 
       <Section title="Financials">
-        <FinancialTiles financials={summary?.financials} />
+<FinancialTiles financials={summary?.financials} />
       </Section>
 
       <Section title="Billing">
-        {/* QA IP-15 */}
-        {(summary?.billing?.overdueDays ?? 0) > 0 && (
-          <div style={{ marginBottom: 14, fontSize: 13, fontWeight: 700, color: '#c62828' }}>
-            Payment overdue by {summary?.billing?.overdueDays} {summary?.billing?.overdueDays === 1 ? 'day' : 'days'}
+        <div className="policy-billing-summary">
+          <div className="policy-billing-meta">
+            <div>
+              <div className="policy-billing-meta-label">Payment Frequency</div>
+              <div className="policy-billing-meta-value">{billingDisplayValue(summary?.billing?.paymentFrequency)}</div>
+            </div>
+            <div>
+              <div className="policy-billing-meta-label">Responsible Party</div>
+              <div className="policy-billing-meta-value">{billingDisplayValue(summary?.billing?.responsibleParty)}</div>
+            </div>
           </div>
-        )}
-        {/* QA IP-13: values right-aligned. */}
-        <div style={{ display: 'flex', gap: 40, marginBottom: 20 }}>
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Payment Frequency</div>
-            <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'right' }}>{na(summary?.billing?.paymentFrequency)}</div>
+          <div className="policy-billing-visuals">
+            <div className="policy-billing-chart-column">
+              <BillingDonutChart series={billingSeriesFrom(summary?.billing ?? null)} />
+              {summary?.billing && (
+                <div className="policy-billing-next-due">
+                  <div className="policy-billing-next-due-amount">
+                    USD {fmtCurrency(summary.billing.nextPaymentDueAmount ?? summary.billing.amountDue)}
+                  </div>
+                  {summary.billing.overdueDays > 0 && (
+                    <div className="policy-billing-overdue">
+                      Payment Overdue by {summary.billing.overdueDays} {summary.billing.overdueDays === 1 ? 'Day' : 'Days'}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <BillingLegend series={billingSeriesFrom(summary?.billing ?? null)} />
           </div>
-          <div style={{ minWidth: 180 }}>
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>Responsible Party</div>
-            <div style={{ fontSize: 14, fontWeight: 700, textAlign: 'right' }}>{na(summary?.billing?.responsibleParty)}</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 48 }}>
-          <BillingDonutChart series={billingSeriesFrom(summary?.billing ?? null)} />
-          <BillingLegend series={billingSeriesFrom(summary?.billing ?? null)} />
         </div>
       </Section>
 
@@ -2425,7 +2498,7 @@ function SummaryContent({ policyId, insuredType, summary }: { policyId: string; 
             {summary.contacts.map((row, i) => (
               <tr key={i} style={{ borderTop: '1px solid #f3f4f6' }}>
                 <td style={{ padding: '10px 12px' }}>{na(row.name)}</td>
-                <td style={{ padding: '10px 12px' }}>{fv.formatPhone(row.phone) || '-'}</td>
+                <td style={{ padding: '10px 12px' }}>{fv.formatPhoneView(row.phone) || '-'}</td>
                 <td style={{ padding: '10px 12px' }}>{na(row.email)}</td>
                 <AddressCell address={row.address} />
               </tr>
@@ -2492,8 +2565,8 @@ export default function PolicySummaryPage() {
                 summaryOfChanges,
               });
               // Hydrate the wizard's initial draft from the FULL cloned policy (risk
-              // address, risk info, limits & coverages, additional insureds, mortgages) —
-              // not just the handful of fields endorsePolicy's response carries — so
+              // address, risk info, limits & coverages, additional insureds, mortgages) â€”
+              // not just the handful of fields endorsePolicy's response carries â€” so
               // nothing the clone produced is invisible to the wizard from the start.
               const draftForm = await quotesPoliciesApi.getEndorsementDraftForm(insuredType, policyNumber);
               const submission = await quotesPoliciesApi.createSubmission({
@@ -2547,13 +2620,13 @@ export default function PolicySummaryPage() {
             />
           ) : <>
           {active === 'summary' && <SummaryContent policyId={policyId} insuredType={insuredType} summary={summary} />}
-          {active === 'contacts' && <ContactsContent summary={summary} policyId={policyId} />}
+          {active === 'contacts' && <ContactsContent summary={summary} policyId={policyId} insuredType={insuredType} />}
           {active === 'billing' && <BillingContent policyId={policyId} insuredType={insuredType} summary={summary} />}
           {active === 'pending' && <PendingTransactionsContent policyId={policyId} insuredType={insuredType} summary={summary} />}
           {active === 'history' && <PolicyHistoryContent policyId={policyId} insuredType={insuredType} summary={summary} />}
           {active === 'claims' && <ClaimsContent policyId={policyId} insuredType={insuredType} summary={summary} />}
           {active === 'notes' && <NotesContent policyId={policyId} insuredType={insuredType} summary={summary} />}
-          {active === 'timeline' && <TimelineContent policyId={policyId} insuredType={insuredType} summary={summary} />}
+          {active === 'timeline' && <TimelineContent policyId={policyId} insuredType={insuredType} />}
           {active !== 'summary' && active !== 'contacts' && active !== 'billing' && active !== 'pending' && active !== 'history' && active !== 'claims' && active !== 'notes' && active !== 'timeline' && <PlaceholderContent title={title} />}
           </>}
         </div>
@@ -2562,7 +2635,7 @@ export default function PolicySummaryPage() {
           style={{ position: 'fixed', bottom: 24, right: 24, width: 40, height: 40, borderRadius: '50%', border: 'none', background: '#0B5AA0', color: '#fff', fontSize: 16, cursor: 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.2)' }}
           title="Scroll to top"
         >
-          ↑
+          â†‘
         </button>
       </div>
     </div>

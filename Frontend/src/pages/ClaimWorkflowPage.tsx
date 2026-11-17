@@ -12,6 +12,8 @@ import { claimLetterApi } from '../api/claimLetter';
 import type { ClaimLetterListItemDto, ClaimLetterDetailDto, SaveClaimLetterRequest } from '../api/claimLetter';
 import { authApi } from '../api/auth';
 import type { ClaimDetailDto, ClaimDocumentDto, TempClaimReportDto, TempClaimPartyDto, TempClaimWitnessDto, UpsertTempClaimReportRequest, UpsertTempClaimPartyRequest, UpsertTempClaimWitnessRequest, CoverageOptionDto, AssignableUserDto, LossExposureDto, CreateLossExposureRequest, LossExposureFormData, LossExposureDamage } from '../types/Claim';
+import * as fv from '../utils/fieldValidation';
+import { useSessionState } from '../hooks/useSessionState';
 
 type WorkflowKey = 'review' | 'summary' | 'loss' | 'documents' | 'worksheet' | 'payee' | 'policy' | 'escalation' | 'recovery' | 'referred' | 'litigation' | 'task' | 'timeline' | 'letters';
 
@@ -154,7 +156,7 @@ function Card({ title, children, style }: { title: string; children: ReactNode; 
 }
 
 function ReadGrid({ items, columns = 4 }: { items: { label: string; value: string }[]; columns?: number }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '18px 16px' }}>{items.map(item => <div key={item.label} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div><div style={{ fontSize: 14, fontWeight: 500 }}>{item.value}</div></div>)}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '18px 16px' }}>{items.map(item => <div key={item.label} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div><div style={{ fontSize: 14, fontWeight: 500 }}>{/telephone|phone/i.test(item.label) ? fv.formatPhoneView(item.value) || '-' : item.value}</div></div>)}</div>;
 }
 
 function StatusAvatar({ assignee }: { assignee: ClaimAssignee }) {
@@ -299,7 +301,7 @@ function DocumentColumnFilterPopup({ col, allRows, valueFilter, condFilter, onAp
   onClose: () => void;
   anchorRect: DOMRect;
 }) {
-  const [tab, setTab] = useState<'condition' | 'value'>('condition');
+  const [tab, setTab] = useState<'condition' | 'value'>(condFilter ? 'condition' : 'value');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>(valueFilter);
   const [condOp, setCondOp] = useState(condFilter?.op ?? 'Contains');
@@ -334,8 +336,8 @@ function DocumentsContent({ documents, onAdd, onDelete }: { documents: ClaimDocu
   const [modifyColsRect, setModifyColsRect] = useState<DOMRect | null>(null);
   const [openFilterCol, setOpenFilterCol] = useState<DocumentColumn | null>(null);
   const [filterAnchorRects, setFilterAnchorRects] = useState<Partial<Record<DocumentColumn, DOMRect>>>({});
-  const [valueFilters, setValueFilters] = useState<DocumentValueFilters>({});
-  const [condFilters, setCondFilters] = useState<DocumentCondFilters>({});
+  const [valueFilters, setValueFilters] = useSessionState<DocumentValueFilters>('grid-filters:claim-workflow:documents:values', {});
+  const [condFilters, setCondFilters] = useSessionState<DocumentCondFilters>('grid-filters:claim-workflow:documents:conditions', {});
   const [previewDoc, setPreviewDoc] = useState<ClaimDocument | null>(null);
   const [deleteDoc, setDeleteDoc] = useState<ClaimDocument | null>(null);
 
@@ -617,8 +619,15 @@ function FormField({ label, required, children }: { label: string; required?: bo
   return <label style={{ display: 'block', fontSize: 13, color: '#111827', fontWeight: 600 }}>{required && <span style={{ color: '#c62828' }}>* </span>}{label}{children}</label>;
 }
 
-function InputField({ label, value, required, disabled }: { label: string; value?: string; required?: boolean; disabled?: boolean }) {
-  return <FormField label={label} required={required}><input defaultValue={value ?? ''} disabled={disabled} style={{ ...fieldStyle, marginTop: 7, background: disabled ? '#e5e7eb' : '#f7f9fc' }} /></FormField>;
+function addressFieldMaxLength(label: string): number | undefined {
+  if (label === 'Address Line 1' || label === 'Address Line 2') return fv.ADDRESS_LINE_MAX;
+  if (label === 'City') return fv.CITY_MAX;
+  if (label === 'County') return fv.COUNTY_MAX;
+  return undefined;
+}
+
+function InputField({ label, value, required, disabled, maxLength }: { label: string; value?: string; required?: boolean; disabled?: boolean; maxLength?: number }) {
+  return <FormField label={label} required={required}><input defaultValue={value ?? ''} disabled={disabled} maxLength={maxLength ?? addressFieldMaxLength(label)} style={{ ...fieldStyle, marginTop: 7, background: disabled ? '#e5e7eb' : '#f7f9fc' }} /></FormField>;
 }
 
 function SelectField({ label, value, required, disabled, options = ['Select...', 'Active', 'Settlements or Judgments', 'No fraud deducted'] }: { label: string; value?: string; required?: boolean; disabled?: boolean; options?: string[] }) {
@@ -680,7 +689,7 @@ function HeaderSortIcon({ active, direction }: { active: boolean; direction: 'as
 }
 
 function GenericColumnFilterPopup({ label, values, valueFilter, condFilter, onApplyValue, onApplyCondition, onClear, onClose, anchorRect }: { label: string; values: string[]; valueFilter: string[]; condFilter: { op: string; value: string } | undefined; onApplyValue: (values: string[]) => void; onApplyCondition: (filter: { op: string; value: string } | undefined) => void; onClear: () => void; onClose: () => void; anchorRect: DOMRect }) {
-  const [tab, setTab] = useState<'condition' | 'value'>('condition');
+  const [tab, setTab] = useState<'condition' | 'value'>(condFilter ? 'condition' : 'value');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>(valueFilter);
   const [condOp, setCondOp] = useState(condFilter?.op ?? 'Contains');
@@ -719,8 +728,8 @@ function ReportsList({ onAdd, onView }: { onAdd: () => void; onView: () => void 
   const [pageSize, setPageSize] = useState(10);
   const [sortKey, setSortKey] = useState<keyof typeof reportRows[number]>('reportNumber');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [valueFilters, setValueFilters] = useState<GenericValueFilters>({});
-  const [condFilters, setCondFilters] = useState<GenericCondFilters>({});
+  const [valueFilters, setValueFilters] = useSessionState<GenericValueFilters>('grid-filters:claim-workflow:reports:values', {});
+  const [condFilters, setCondFilters] = useSessionState<GenericCondFilters>('grid-filters:claim-workflow:reports:conditions', {});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [filterRect, setFilterRect] = useState<DOMRect | null>(null);
   const cols: { key: keyof typeof reportRows[number]; label: string }[] = [{ key: 'reportType', label: 'Report Type' }, { key: 'reportNumber', label: 'Report Number' }, { key: 'filingDate', label: 'Report Filing Date' }, { key: 'caseStatus', label: 'Case Status' }, { key: 'contactName', label: 'Contact Person' }];
@@ -740,8 +749,8 @@ function PartyList({ title, buttonLabel, rows, onAdd, onView }: { title: string;
   const [pageSize, setPageSize] = useState(10);
   const [sortKey, setSortKey] = useState<SimpleSortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [valueFilters, setValueFilters] = useState<GenericValueFilters>({});
-  const [condFilters, setCondFilters] = useState<GenericCondFilters>({});
+  const [valueFilters, setValueFilters] = useSessionState<GenericValueFilters>(`grid-filters:claim-workflow:${title}:values`, {});
+  const [condFilters, setCondFilters] = useSessionState<GenericCondFilters>(`grid-filters:claim-workflow:${title}:conditions`, {});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [filterRect, setFilterRect] = useState<DOMRect | null>(null);
   const cols = [{ key: 'name', label: title === 'Witness Details' ? 'Witness Name' : 'Party Name' }, { key: 'relationship', label: 'Relationship with the Insured' }, { key: 'telephone', label: 'Telephone Number' }, { key: 'email', label: 'Email' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }];
@@ -867,7 +876,7 @@ function EditSectionActions({ editing, onEdit, onCancel, onSave }: { editing: bo
 }
 
 function EditableReadGrid({ items, editing, columns = 3 }: { items: { label: string; value: string }[]; editing: boolean; columns?: number }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '18px 16px' }}>{items.map(item => <div key={item.label} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div>{editing ? <input defaultValue={item.value === '-' ? '' : item.value} style={{ ...fieldStyle, height: 30 }} /> : <div style={{ fontSize: 14, fontWeight: 500 }}>{item.value}</div>}</div>)}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '18px 16px' }}>{items.map(item => <div key={item.label} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div>{editing ? <input defaultValue={item.value === '-' ? '' : item.value} style={{ ...fieldStyle, height: 30 }} /> : <div style={{ fontSize: 14, fontWeight: 500 }}>{/telephone|phone/i.test(item.label) ? fv.formatPhoneView(item.value) || '-' : item.value}</div>}</div>)}</div>;
 }
 
 function ViewReportForm({ onBack }: { onBack: () => void }) {
@@ -927,8 +936,8 @@ function WorkflowDataList<Row extends { id: number }>({ title, buttonLabel, rows
   const [pageSize, setPageSize] = useState(10);
   const [sortKey, setSortKey] = useState(cols[0]?.key ?? '');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [valueFilters, setValueFilters] = useState<GenericValueFilters>({});
-  const [condFilters, setCondFilters] = useState<GenericCondFilters>({});
+  const [valueFilters, setValueFilters] = useSessionState<GenericValueFilters>(`grid-filters:claim-workflow:${title}:data-values`, {});
+  const [condFilters, setCondFilters] = useSessionState<GenericCondFilters>(`grid-filters:claim-workflow:${title}:data-conditions`, {});
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [filterRect, setFilterRect] = useState<DOMRect | null>(null);
   const valueFor = (row: Row, key: string) => cols.find(col => col.key === key)?.value(row) ?? '';
@@ -964,15 +973,24 @@ function personColumns(label: string): WorkflowGridColumn<WorkflowPersonDto>[] {
   return [
     { key: 'name', label, value: personName, render: row => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span style={{ width: 28, height: 28, borderRadius: '50%', background: '#cfedff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>{initialsFrom(personName(row))}</span>{personName(row)}</span> },
     { key: 'relationship', label: 'Relationship with the Insured', value: row => emptyText(row.relationshipWithInsured) },
-    { key: 'telephone', label: 'Telephone Number', value: row => emptyText(row.telephoneNumber) },
+    { key: 'telephone', label: 'Telephone Number', value: row => fv.formatPhoneView(row.telephoneNumber) || '-' },
     { key: 'email', label: 'Email', value: row => emptyText(row.emailId) },
     { key: 'city', label: 'City', value: row => emptyText(row.city) },
     { key: 'state', label: 'State', value: row => emptyText(row.state) },
   ];
 }
 
-function FormInput({ label, value, onChange, required }: { label: string; value: string | null | undefined; onChange: (value: string) => void; required?: boolean }) {
-  return <FormField label={label} required={required}><input value={value ?? ''} onChange={event => onChange(event.target.value)} style={{ ...fieldStyle, marginTop: 7 }} /></FormField>;
+let workflowPhoneErrors: Record<string, string> = {};
+
+function FormInput({ label, value, onChange, required, maxLength, error }: { label: string; value: string | null | undefined; onChange: (value: string) => void; required?: boolean; maxLength?: number; error?: string }) {
+  const fieldError = error ?? (label === 'Telephone Number' ? workflowPhoneErrors.telephoneNumber : label === 'Alternate Telephone Number' ? workflowPhoneErrors.alternateTelephoneNumber : undefined);
+  return <FormField label={label} required={required}><input value={value ?? ''} onChange={event => onChange(event.target.value)} maxLength={maxLength ?? addressFieldMaxLength(label)} style={{ ...fieldStyle, marginTop: 7, borderColor: fieldError ? '#c62828' : undefined }} />{fieldError && <span style={{ color: '#c62828', fontSize: 11, marginTop: 3, display: 'block' }}>{fieldError}</span>}</FormField>;
+}
+
+function phonePairErrors(telephone: unknown, alternateTelephone: unknown) {
+  const errors: Record<string, string> = {};
+  fv.checkPhonesDiffer(errors, 'telephoneNumber', 'alternateTelephoneNumber', String(telephone ?? ''), String(alternateTelephone ?? ''));
+  return errors;
 }
 
 function FormSelect({ label, value, onChange, required, options = ['Select...', 'Active', 'Open', 'Closed', 'Pending'] }: { label: string; value: string | null | undefined; onChange: (value: string) => void; required?: boolean; options?: string[] }) {
@@ -989,14 +1007,16 @@ function DbFormFooter({ onCancel, onSave, primary = 'Save' }: { onCancel: () => 
 
 const emptyReportDraft: UpsertTempClaimReportRequest = { id: null, reportType: null, reportNumber: null, reportFilingDate: null, precinctName: null, caseStatus: null, numberOfWitness: null, description: null, notifyDocumentUpload: false, notifyToName: null, comment: null, contactFirstName: null, contactLastName: null, identityDocument: null, telephoneNumber: null, extension: null, alternateTelephoneNumber: null, emailId: null, referenceDocumentName: null };
 
-function DbAddReportForm({ onBack, onSave }: { onBack: () => void; onSave: (draft: UpsertTempClaimReportRequest) => void }) {
+function DbAddReportForm({ onBack, onSave: persist }: { onBack: () => void; onSave: (draft: UpsertTempClaimReportRequest) => void }) {
   const [draft, setDraft] = useState<UpsertTempClaimReportRequest>(emptyReportDraft);
+  const [, setErrors] = useState<Record<string, string>>(() => { workflowPhoneErrors = {}; return {}; });
   const update = (key: keyof UpsertTempClaimReportRequest, value: string | boolean) => setDraft(prev => ({ ...prev, [key]: typeof value === 'string' ? nullableText(value) : value }));
+  const onSave = (nextDraft: UpsertTempClaimReportRequest) => { const next = phonePairErrors(nextDraft.telephoneNumber, nextDraft.alternateTelephoneNumber); workflowPhoneErrors = next; setErrors(next); if (Object.keys(next).length === 0) persist(nextDraft); };
   return <div><div style={{ marginBottom: 14 }}><h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>New Report</h1><div style={{ fontSize: 12, marginTop: 6 }}>Loss Information / New Report</div></div><section style={{ border: '1px solid #d8e1ea', borderRadius: 6, background: '#fff', minHeight: 560, display: 'grid', gridTemplateColumns: '0.52fr 1fr' }}><div style={{ padding: 16, borderRight: '1px solid #d8e1ea' }}><h2 style={{ fontSize: 18, margin: '0 0 18px' }}>Report Details</h2><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}><FormSelect label='Report Type' value={draft.reportType} onChange={value => update('reportType', value)} required options={['Police Report', 'Inspection Report', 'Incident Report']} /><FormInput label='Report Number' value={draft.reportNumber} onChange={value => update('reportNumber', value)} required /><FormInput label='Report Filing Date' value={draft.reportFilingDate} onChange={value => update('reportFilingDate', value)} required /><FormInput label='Precinct Name' value={draft.precinctName} onChange={value => update('precinctName', value)} required /><FormSelect label='Case Status' value={draft.caseStatus} onChange={value => update('caseStatus', value)} required /><FormInput label='Number of Witness' value={draft.numberOfWitness} onChange={value => update('numberOfWitness', value)} required /></div><div style={{ marginTop: 16 }}><FormArea label='Description' value={draft.description} onChange={value => update('description', value)} required /></div><div style={{ marginTop: 24, fontSize: 13, fontWeight: 700 }}><span style={{ color: '#c62828' }}>* </span>Notify users about document upload?</div><div style={{ display: 'flex', gap: 18, margin: '12px 0 18px' }}><label><input type='radio' checked={draft.notifyDocumentUpload} onChange={() => update('notifyDocumentUpload', true)} /> Yes</label><label><input type='radio' checked={!draft.notifyDocumentUpload} onChange={() => update('notifyDocumentUpload', false)} /> No</label></div><FormInput label='Notify To' value={draft.notifyToName} onChange={value => update('notifyToName', value)} /><FormArea label='Comment' value={draft.comment} onChange={value => update('comment', value)} /></div><div style={{ padding: 16 }}><h2 style={{ fontSize: 18, margin: '0 0 18px' }}>Contact Person</h2><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}><FormInput label='First Name' value={draft.contactFirstName} onChange={value => update('contactFirstName', value)} required /><FormInput label='Last Name' value={draft.contactLastName} onChange={value => update('contactLastName', value)} required /><FormInput label='Identity Document (ID)' value={draft.identityDocument} onChange={value => update('identityDocument', value)} required /><FormInput label='Telephone Number' value={draft.telephoneNumber} onChange={value => update('telephoneNumber', value)} required /><FormInput label='Extension' value={draft.extension} onChange={value => update('extension', value)} /><FormInput label='Alternate Telephone Number' value={draft.alternateTelephoneNumber} onChange={value => update('alternateTelephoneNumber', value)} /><FormInput label='Email ID' value={draft.emailId} onChange={value => update('emailId', value)} required /></div><div style={{ borderTop: '1px solid #d8e1ea', marginTop: 16, paddingTop: 16 }}><h2 style={{ fontSize: 18, margin: '0 0 12px' }}>Upload Reference Document</h2><UploadBox formats='Supported formats are JPG, PNG, DOCS, XLSX, XLS, TXT, PDF, DOC, CSV, and JPEG' /><FormInput label='Reference Document Name' value={draft.referenceDocumentName} onChange={value => update('referenceDocumentName', value)} /></div></div></section><DbFormFooter onCancel={onBack} onSave={() => onSave(draft)} primary='Submit' /></div>;
 }
 
 function editableFields<T extends Record<string, unknown>>(draft: T, setDraft: (next: T) => void, keys: { key: keyof T; label: string }[], editing: boolean) {
-  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '18px 16px' }}>{keys.map(item => <div key={String(item.key)} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div>{editing ? <input value={String(draft[item.key] ?? '')} onChange={event => setDraft({ ...draft, [item.key]: nullableText(event.target.value) })} style={{ ...fieldStyle, height: 30 }} /> : <div style={{ fontSize: 14, fontWeight: 500 }}>{emptyText(draft[item.key])}</div>}</div>)}</div>;
+  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '18px 16px' }}>{keys.map(item => <div key={String(item.key)} style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}><div style={{ fontSize: 12, color: '#334155', marginBottom: 5 }}>{item.label}</div>{editing ? <input value={String(draft[item.key] ?? '')} onChange={event => setDraft({ ...draft, [item.key]: nullableText(event.target.value) })} style={{ ...fieldStyle, height: 30 }} /> : <div style={{ fontSize: 14, fontWeight: 500 }}>{/telephone|phone/i.test(item.label) ? fv.formatPhoneView(String(draft[item.key] ?? '')) || '-' : emptyText(draft[item.key])}</div>}</div>)}</div>;
 }
 
 function DbViewReportForm({ report, onBack, onSave }: { report: TempClaimReportDto; onBack: () => void; onSave: (draft: UpsertTempClaimReportRequest) => Promise<TempClaimReportDto> }) {
@@ -1013,10 +1033,12 @@ function emptyPersonDraft(isWitness: boolean): Record<string, string | number | 
   return isWitness ? common : { ...common, partyType: null, partyCategory: null, businessName: null, tinId: null };
 }
 
-function DbAddPersonForm({ mode, onBack, onSave }: { mode: 'party' | 'witness'; onBack: () => void; onSave: (draft: Record<string, string | number | null>) => void }) {
+function DbAddPersonForm({ mode, onBack, onSave: persist }: { mode: 'party' | 'witness'; onBack: () => void; onSave: (draft: Record<string, string | number | null>) => void }) {
   const isWitness = mode === 'witness';
   const [draft, setDraft] = useState<Record<string, string | number | null>>(() => emptyPersonDraft(isWitness));
+  const [, setValidationVersion] = useState(() => { workflowPhoneErrors = {}; return 0; });
   const update = (key: string, value: string) => setDraft(prev => ({ ...prev, [key]: nullableText(value) }));
+  const onSave = (nextDraft: Record<string, string | number | null>) => { workflowPhoneErrors = phonePairErrors(nextDraft.telephoneNumber, nextDraft.alternateTelephoneNumber); setValidationVersion(value => value + 1); if (Object.keys(workflowPhoneErrors).length === 0) persist(nextDraft); };
   return <div><div style={{ marginBottom: 14 }}><h1 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>{isWitness ? 'Add Witness' : 'Add Party'}</h1><div style={{ fontSize: 12, marginTop: 6 }}>Loss Information / {isWitness ? 'Add Witness' : 'Add Party'}</div></div><section style={{ border: '1px solid #d8e1ea', borderRadius: 6, background: '#fff', minHeight: 640, display: 'grid', gridTemplateColumns: '0.52fr 1fr' }}><div style={{ padding: 16, borderRight: '1px solid #d8e1ea' }}><h2 style={{ fontSize: 18, margin: '0 0 18px' }}>{isWitness ? 'Witness Primary Information' : 'Party Primary Information'}</h2><UploadBox />{isWitness ? <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}><FormInput label='First Name' value={draft.firstName as string | null} onChange={value => update('firstName', value)} required /><FormInput label='Middle Name/Initial' value={draft.middleName as string | null} onChange={value => update('middleName', value)} /><FormInput label='Last Name' value={draft.lastName as string | null} onChange={value => update('lastName', value)} required /><FormInput label='Date of Birth' value={draft.dateOfBirth as string | null} onChange={value => update('dateOfBirth', value)} required /><FormSelect label='Gender' value={draft.gender as string | null} onChange={value => update('gender', value)} required options={['Male', 'Female', 'Other']} /><FormInput label='Social Security Number' value={draft.socialSecurityNumber as string | null} onChange={value => update('socialSecurityNumber', value)} /></div> : <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}><FormSelect label='Party Type' value={draft.partyType as string | null} onChange={value => update('partyType', value)} required options={['Business', 'Individual']} /><FormSelect label='Party Category' value={draft.partyCategory as string | null} onChange={value => update('partyCategory', value)} required options={['Additional Organization', 'Claimant', 'Vendor']} /><FormInput label='Business Name' value={draft.businessName as string | null} onChange={value => update('businessName', value)} /><FormInput label='TIN ID' value={draft.tinId as string | null} onChange={value => update('tinId', value)} /><FormInput label='Relationship with Insured' value={draft.relationshipWithInsured as string | null} onChange={value => update('relationshipWithInsured', value)} /></div>}<div style={{ borderTop: '1px solid #d8e1ea', marginTop: 20, paddingTop: 16 }}><h2 style={{ fontSize: 18, margin: '0 0 12px' }}>Upload ID proof</h2><UploadBox formats='Supported formats are JPG, PNG, DOCS, XLSX, XLS, TXT, PDF, DOC, CSV, and JPEG' /><FormInput label='ID Proof Name' value={draft.idProofName as string | null} onChange={value => update('idProofName', value)} /></div></div><div style={{ padding: 16 }}><h2 style={{ fontSize: 18, margin: '0 0 18px' }}>{isWitness ? 'Witness Address' : 'Party Address'}</h2><div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}><FormInput label='Address Line 1' value={draft.addressLine1 as string | null} onChange={value => update('addressLine1', value)} required /><FormInput label='Address Line 2' value={draft.addressLine2 as string | null} onChange={value => update('addressLine2', value)} /><FormInput label='Country' value={draft.country as string | null} onChange={value => update('country', value)} required /><FormInput label='State' value={draft.state as string | null} onChange={value => update('state', value)} required /><FormInput label='City' value={draft.city as string | null} onChange={value => update('city', value)} required /><FormInput label='County' value={draft.county as string | null} onChange={value => update('county', value)} /><FormInput label='Zip Code' value={draft.zipCode as string | null} onChange={value => update('zipCode', value)} required /><FormInput label='Latitude' value={draft.latitude as string | null} onChange={value => update('latitude', value)} /><FormInput label='Longitude' value={draft.longitude as string | null} onChange={value => update('longitude', value)} /></div><div style={{ borderTop: '1px solid #d8e1ea', marginTop: 16, paddingTop: 16 }}><h2 style={{ fontSize: 18, margin: '0 0 12px' }}>{isWitness ? 'Witness Contact Details' : 'Party Contact Details'}</h2><div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}><FormInput label='Telephone Number' value={draft.telephoneNumber as string | null} onChange={value => update('telephoneNumber', value)} required /><FormInput label='Extension' value={draft.extension as string | null} onChange={value => update('extension', value)} /><FormInput label='Alternate Telephone Number' value={draft.alternateTelephoneNumber as string | null} onChange={value => update('alternateTelephoneNumber', value)} /><FormInput label='Email ID' value={draft.emailId as string | null} onChange={value => update('emailId', value)} required /></div></div><div style={{ borderTop: '1px solid #d8e1ea', marginTop: 16, paddingTop: 16 }}><FormArea label='Description' value={draft.description as string | null} onChange={value => update('description', value)} /></div></div></section><DbFormFooter onCancel={onBack} onSave={() => onSave(draft)} /></div>;
 }
 
@@ -2364,10 +2386,10 @@ function PayeeAddForm({ claimId, onCancel, onSaved, editingPayeeId }: { claimId:
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <PField label="Address Line 1" required error={errors.addrLine1}>
-                <input disabled={addrDisabled} style={pinput(!!errors.addrLine1, addrDisabled)} value={addrLine1} onChange={e => { setAddrLine1(e.target.value); clearErr('addrLine1'); }} />
+                <input disabled={addrDisabled} style={pinput(!!errors.addrLine1, addrDisabled)} value={addrLine1} onChange={e => { setAddrLine1(e.target.value); clearErr('addrLine1'); }} maxLength={fv.ADDRESS_LINE_MAX} />
               </PField>
               <PField label="Address Line 2" info>
-                <input disabled={addrDisabled} style={pinput(false, addrDisabled)} value={addrLine2} onChange={e => setAddrLine2(e.target.value)} />
+                <input disabled={addrDisabled} style={pinput(false, addrDisabled)} value={addrLine2} onChange={e => setAddrLine2(e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} />
               </PField>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
@@ -2385,12 +2407,12 @@ function PayeeAddForm({ claimId, onCancel, onSaved, editingPayeeId }: { claimId:
                 </select>
               </PField>
               <PField label="City" required error={errors.city}>
-                <input disabled={addrDisabled} style={pinput(!!errors.city, addrDisabled)} value={city} onChange={e => { setCity(e.target.value); clearErr('city'); }} />
+                <input disabled={addrDisabled} style={pinput(!!errors.city, addrDisabled)} value={city} onChange={e => { setCity(e.target.value); clearErr('city'); }} maxLength={fv.CITY_MAX} />
               </PField>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <PField label="County" required error={errors.county}>
-                <input disabled={addrDisabled} style={pinput(!!errors.county, addrDisabled)} value={county} onChange={e => { setCounty(e.target.value); clearErr('county'); }} />
+                <input disabled={addrDisabled} style={pinput(!!errors.county, addrDisabled)} value={county} onChange={e => { setCounty(e.target.value); clearErr('county'); }} maxLength={fv.COUNTY_MAX} />
               </PField>
               <PField label="Zip Code" required error={errors.zipCode}>
                 <input disabled={addrDisabled} style={pinput(!!errors.zipCode, addrDisabled)} value={zipCode} onChange={e => { setZipCode(e.target.value); clearErr('zipCode'); }} />
@@ -2523,10 +2545,10 @@ function PayeeAddForm({ claimId, onCancel, onSaved, editingPayeeId }: { claimId:
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <PField label="Address Line 1" required error={errors.s2AddrLine1}>
-              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2AddrLine1, s2AddrDisabled)} value={s2AddrLine1} onChange={e => { setS2AddrLine1(e.target.value); clearErr('s2AddrLine1'); }} />
+              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2AddrLine1, s2AddrDisabled)} value={s2AddrLine1} onChange={e => { setS2AddrLine1(e.target.value); clearErr('s2AddrLine1'); }} maxLength={fv.ADDRESS_LINE_MAX} />
             </PField>
             <PField label="Address Line 2" info>
-              <input disabled={s2AddrDisabled} style={pinput(false, s2AddrDisabled)} value={s2AddrLine2} onChange={e => setS2AddrLine2(e.target.value)} />
+              <input disabled={s2AddrDisabled} style={pinput(false, s2AddrDisabled)} value={s2AddrLine2} onChange={e => setS2AddrLine2(e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} />
             </PField>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
@@ -2544,12 +2566,12 @@ function PayeeAddForm({ claimId, onCancel, onSaved, editingPayeeId }: { claimId:
               </select>
             </PField>
             <PField label="City" required error={errors.s2City}>
-              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2City, s2AddrDisabled)} value={s2City} onChange={e => { setS2City(e.target.value); clearErr('s2City'); }} />
+              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2City, s2AddrDisabled)} value={s2City} onChange={e => { setS2City(e.target.value); clearErr('s2City'); }} maxLength={fv.CITY_MAX} />
             </PField>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <PField label="County" required error={errors.s2County}>
-              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2County, s2AddrDisabled)} value={s2County} onChange={e => { setS2County(e.target.value); clearErr('s2County'); }} />
+              <input disabled={s2AddrDisabled} style={pinput(!!errors.s2County, s2AddrDisabled)} value={s2County} onChange={e => { setS2County(e.target.value); clearErr('s2County'); }} maxLength={fv.COUNTY_MAX} />
             </PField>
             <PField label="Zip Code" required error={errors.s2ZipCode}>
               <input disabled={s2AddrDisabled} style={pinput(!!errors.s2ZipCode, s2AddrDisabled)} value={s2ZipCode} onChange={e => { setS2ZipCode(e.target.value); clearErr('s2ZipCode'); }} />
@@ -2819,6 +2841,7 @@ function InsuredPolicyContent({ claimId }: { claimId: number }) {
   }
 
   function IPField({ label, value }: { label: string; value: string | null | undefined }) {
+    if (/telephone|phone/i.test(label)) value = fv.formatPhoneView(value);
     return (
       <div>
         <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 3 }}>{label}</div>
@@ -2899,8 +2922,8 @@ function InsuredPolicyContent({ claimId }: { claimId: number }) {
                       <td style={{ padding: '9px 10px', color: '#0B5AA0', fontWeight: 500 }}>{idx + 1}</td>
                       <td style={{ padding: '9px 10px' }}>{row.name || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.relationship || '-'}</td>
-                      <td style={{ padding: '9px 10px' }}>{row.telephoneNumber || '-'}</td>
-                      <td style={{ padding: '9px 10px' }}>{row.alternateTelephoneNumber || '-'}</td>
+                      <td style={{ padding: '9px 10px' }}>{fv.formatPhoneView(row.telephoneNumber) || '-'}</td>
+                      <td style={{ padding: '9px 10px' }}>{fv.formatPhoneView(row.alternateTelephoneNumber) || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.emailId || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.insuredType || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.dbaName || '-'}</td>
@@ -2929,9 +2952,9 @@ function InsuredPolicyContent({ claimId }: { claimId: number }) {
                       <td style={{ padding: '9px 10px', color: '#0B5AA0', fontWeight: 500 }}>{idx + 1}</td>
                       <td style={{ padding: '9px 10px' }}>{row.orgName || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.orgType || '-'}</td>
-                      <td style={{ padding: '9px 10px' }}>{row.telephoneNumber || '-'}</td>
+                      <td style={{ padding: '9px 10px' }}>{fv.formatPhoneView(row.telephoneNumber) || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.extension || '-'}</td>
-                      <td style={{ padding: '9px 10px' }}>{row.alternateTelephoneNumber || '-'}</td>
+                      <td style={{ padding: '9px 10px' }}>{fv.formatPhoneView(row.alternateTelephoneNumber) || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.emailId || '-'}</td>
                       <td style={{ padding: '9px 10px' }}>{row.contactName || '-'}</td>
                     </tr>
@@ -3009,7 +3032,7 @@ function EscFilterPopup({ condFilter, onApplyCondition, onClear, onClose, anchor
   onClose: () => void;
   anchorRect: DOMRect;
 }) {
-  const [tab, setTab] = useState<'condition' | 'value'>('condition');
+  const [tab, setTab] = useState<'condition' | 'value'>(condFilter ? 'condition' : 'value');
   const [condOp, setCondOp] = useState(condFilter?.op ?? 'Contains');
   const [condVal, setCondVal] = useState(condFilter?.value ?? '');
   const ref = useRef<HTMLDivElement>(null);
@@ -3579,7 +3602,7 @@ function EscalationContent() {
   const [modifyColsRect, setModifyColsRect] = useState<DOMRect | null>(null);
   const [openFilterCol, setOpenFilterCol] = useState<EscCol | null>(null);
   const [filterRects, setFilterRects] = useState<Partial<Record<EscCol, DOMRect>>>({});
-  const [condFilters, setCondFilters] = useState<Partial<Record<EscCol, { op: string; value: string }>>>({});
+  const [condFilters, setCondFilters] = useSessionState<Partial<Record<EscCol, { op: string; value: string }>>>('grid-filters:claim-workflow:escalation', {});
   const modifyRef = useRef<HTMLDivElement>(null);
   useWorkflowOutsideClick(modifyRef, () => setShowModifyCols(false));
 
@@ -4007,7 +4030,7 @@ function ClaimLettersContent({ claimId, view, onViewChange }: { claimId: number;
   const [modifyColsRect, setModifyColsRect] = useState<DOMRect | null>(null);
   const [openFilterCol,  setOpenFilterCol]  = useState<ClLetterCol | null>(null);
   const [filterRects,    setFilterRects]    = useState<Partial<Record<ClLetterCol, DOMRect>>>({});
-  const [condFilters,    setCondFilters]    = useState<Partial<Record<ClLetterCol, { op: string; value: string }>>>({});
+  const [condFilters, setCondFilters] = useSessionState<Partial<Record<ClLetterCol, { op: string; value: string }>>>(`grid-filters:claim-workflow:letters:${claimId}`, {});
   const modifyRef = useRef<HTMLDivElement>(null);
   useWorkflowOutsideClick(modifyRef, () => setShowModifyCols(false));
 

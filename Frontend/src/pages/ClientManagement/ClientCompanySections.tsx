@@ -11,8 +11,8 @@ import {
 } from './ClientFormFields';
 import {
   BUSINESS_DESCRIPTION_MAX, CANADA, COUNTRIES, type Errors, apiErrorMessage, digitsOnly,
-  formatFederalTaxId, regionOptions, stateLabel, validateAddress, validateBusinessDescription,
-  validateCompanyForm,
+  formatFederalTaxId, regionOptions, stateLabel, validateAddress, validateBusinessDescription, zipLabel,
+  validateClientLogoFile, validateCompanyForm,
 } from './validation';
 
 const blue = '#0B5AA0';
@@ -71,6 +71,16 @@ const companyRequest = (company: CompanyDto): SaveCompanyRequest => ({
   secondaryContacts: company.secondaryContacts.map(toContactRequest),
 });
 
+const normalizeCompanyAddresses = (form: SaveCompanyRequest): SaveCompanyRequest => ({
+  ...form,
+  legalAddress: form.legalAddress
+    ? { ...form.legalAddress, county: form.legalAddress.country === CANADA ? '' : form.legalAddress.county }
+    : undefined,
+  mailingAddress: form.mailingAddress
+    ? { ...form.mailingAddress, county: form.mailingAddress.country === CANADA ? '' : form.mailingAddress.county }
+    : undefined,
+});
+
 const blankCompany = (): SaveCompanyRequest => ({
   companyName: '', domicileCountry: 'United States', stateOfDomicile: '', naicCode: '',
   emailId: '', telephoneNumber: '', telephoneNumberCc: PHONE_CC_US, extension: undefined,
@@ -80,29 +90,40 @@ const blankCompany = (): SaveCompanyRequest => ({
   primaryContact: emptyContact(), secondaryContacts: [],
 });
 
-function LogoField({ form, setForm, error, existing }: {
+function LogoField({ form, setForm, error, existing, validationError, onValidationError }: {
   form: SaveCompanyRequest; setForm: React.Dispatch<React.SetStateAction<SaveCompanyRequest>>; error?: string; existing?: boolean;
+  validationError?: string; onValidationError: (error: string) => void;
 }) {
-  const [localError, setLocalError] = useState('');
+  const selectionVersion = React.useRef(0);
   const choose = (file?: File) => {
     if (!file) return;
-    if (!['image/png', 'image/jpeg', 'image/gif'].includes(file.type) || file.size < 10 * 1024 || file.size > 10 * 1024 * 1024) {
-      setLocalError('Provide valid Company Logo to continue'); return;
+    const version = ++selectionVersion.current;
+    const nextError = validateClientLogoFile(file);
+    if (nextError) {
+      setForm(current => ({ ...current, logoBase64: '', logoContentType: '', logoFileName: '' }));
+      onValidationError(nextError);
+      return;
     }
     const reader = new FileReader();
     reader.onload = () => {
-      const result = String(reader.result); setLocalError('');
+      if (version !== selectionVersion.current) return;
+      const result = String(reader.result); onValidationError('');
       setForm(current => ({ ...current, logoBase64: result.split(',')[1], logoContentType: file.type, logoFileName: file.name }));
+    };
+    reader.onerror = () => {
+      if (version !== selectionVersion.current) return;
+      setForm(current => ({ ...current, logoBase64: '', logoContentType: '', logoFileName: '' }));
+      onValidationError('Please upload file based on the criteria listed');
     };
     reader.readAsDataURL(file);
   };
   const selectedFileName = form.logoFileName;
   const buttonLabel = selectedFileName
     ? `${selectedFileName.slice(0, 8)}${selectedFileName.length > 8 ? '...' : ''}`
-    : existing ? 'Stored Logo' : 'Browse File';
-  return <Field label="Upload Company Logo" required error={localError || error}>
-    <label onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files?.[0]); }} style={{ minHeight: 112, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: `1px dashed ${localError || error ? '#dc2626' : '#cbd5e1'}`, borderRadius: 4, padding: 12, textAlign: 'center', cursor: 'pointer', color: '#111827', background: '#f8f9fc', fontSize: 12 }}>
-      <input type="file" accept="image/png,image/jpeg,image/gif" style={{ display: 'none' }} onChange={e => choose(e.target.files?.[0])} />
+    : existing && !validationError ? 'Stored Logo' : 'Browse File';
+  return <Field label="Upload Company Logo" required error={validationError || error}>
+    <label onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); choose(event.dataTransfer.files?.[0]); }} style={{ minHeight: 112, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: `1px dashed ${validationError || error ? '#dc2626' : '#cbd5e1'}`, borderRadius: 4, padding: 12, textAlign: 'center', cursor: 'pointer', color: '#111827', background: '#f8f9fc', fontSize: 12 }}>
+      <input type="file" accept="image/png,image/jpeg,image/gif" style={{ display: 'none' }} onChange={event => { choose(event.target.files?.[0]); event.currentTarget.value = ''; }} />
       <strong style={{ fontWeight: 600 }}>Drag and Drop File Here or Select a File</strong>
       <div style={{ color: '#64748b', marginTop: 8, fontSize: 10 }}>Supported formats are PNG, JPEG &amp; GIF.</div>
       <div style={{ color: '#64748b', marginTop: 3, fontSize: 10 }}>File size : 10 KB-10 MB</div>
@@ -120,19 +141,20 @@ function StatusToggle({ active, onChange }: { active: boolean; onChange: (active
   </button>;
 }
 
-function PrimaryFields({ form, setForm, errors, existingLogo }: {
+function PrimaryFields({ form, setForm, errors, existingLogo, logoValidationError, onLogoValidationError }: {
   form: SaveCompanyRequest; setForm: React.Dispatch<React.SetStateAction<SaveCompanyRequest>>; errors: Errors; existingLogo?: boolean;
+  logoValidationError?: string; onLogoValidationError: (error: string) => void;
 }) {
   const set = <K extends keyof SaveCompanyRequest>(key: K, value: SaveCompanyRequest[K]) => setForm(current => ({ ...current, [key]: value }));
   const states = regionOptions(form.domicileCountry);
   return <div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, minHeight: 22 }}><strong style={{ fontSize: 12 }}>Status :</strong><StatusToggle active={form.status !== 'Inactive'} onChange={active => set('status', active ? 'Active' : 'Inactive')} /></div>
-    <LogoField form={form} setForm={setForm} error={errors.logo} existing={existingLogo} />
+    <LogoField form={form} setForm={setForm} error={errors.logo} existing={existingLogo} validationError={logoValidationError} onValidationError={onLogoValidationError} />
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 12, rowGap: 10, marginTop: 12 }}>
       <Field label="Company Name" required error={errors.companyName}><TextInput value={form.companyName} onChange={v => set('companyName', v)} maxLength={75} error={errors.companyName} /></Field>
       <Field label="Domicile Country" required error={errors.domicileCountry}><Select value={form.domicileCountry} options={COUNTRIES} error={errors.domicileCountry} onChange={v => setForm(current => ({ ...current, domicileCountry: v, stateOfDomicile: '' }))} /></Field>
       <Field label={stateLabel(form.domicileCountry) + ' of Domicile'} required error={errors.stateOfDomicile}><Select value={form.stateOfDomicile} options={states} error={errors.stateOfDomicile} onChange={v => set('stateOfDomicile', v)} /></Field>
-      <Field label="NAIC Code" required error={errors.naicCode}><TextInput value={form.naicCode} onChange={v => set('naicCode', digitsOnly(v, 10))} error={errors.naicCode} /></Field>
+      <Field label="NAIC Code" required error={errors.naicCode}><TextInput value={form.naicCode} onChange={v => set('naicCode', digitsOnly(v, 5))} maxLength={5} placeholder="#####" error={errors.naicCode} /></Field>
       <Field label="Email ID"><TextInput value={form.emailId} onChange={v => set('emailId', v)} maxLength={50} /></Field>
       <Field label="Telephone Number"><PhoneInput value={form.telephoneNumber} cc={form.telephoneNumberCc} onChange={v => set('telephoneNumber', v)} onCcChange={v => set('telephoneNumberCc', v)} /></Field>
       <Field label="Extension"><ExtensionInput value={form.extension} onChange={v => set('extension', v)} /></Field>
@@ -149,10 +171,10 @@ function AddressFormBlock({ title, type, value, setValue, errors, legal }: {
   const same = Boolean(value.isSameAsLegal);
   const update = (fn: (previous: AddressForm) => AddressForm) => setValue({ ...fn(value), addressType: type });
   const toggleSame = (checked: boolean) => setValue(checked && legal
-    ? { ...legal, addressType: 'Mailing', isSameAsLegal: true }
+    ? { ...legal, addressType: 'Mailing', isManual: false, isSameAsLegal: true }
     : { ...value, isSameAsLegal: false });
   return <div>
-    {title && <div className="cm-company-section-heading"><h3>{title}</h3>{type === 'Mailing' && <label><input type="checkbox" checked={same} onChange={e => toggleSame(e.target.checked)} /> Same as Home Office / Legal Address</label>}</div>}
+    {(title || type === 'Mailing') && <div className="cm-company-section-heading">{title && <h3>{title}</h3>}{type === 'Mailing' && <label><input type="checkbox" checked={same} onChange={e => toggleSame(e.target.checked)} /> Same as Home Office / Legal Address</label>}</div>}
     <AddressEditor value={value} onChange={update} errors={errors} disabled={same} />
   </div>;
 }
@@ -160,12 +182,16 @@ function AddressFormBlock({ title, type, value, setValue, errors, legal }: {
 function NewCompanyForm({ sequence, onSaved, onToast }: { sequence: number; onSaved: () => Promise<void> | void; onToast: (message: string, ok?: boolean) => void }) {
   const [form, setForm] = useState(blankCompany);
   const [errors, setErrors] = useState<Errors>({});
+  const [logoValidationError, setLogoValidationError] = useState('');
   const [saving, setSaving] = useState(false);
   const save = async () => {
-    const nextErrors = validateCompanyForm(form); setErrors(nextErrors);
+    const request = normalizeCompanyAddresses(form);
+    const nextErrors = validateCompanyForm(request);
+    if (logoValidationError) nextErrors.logo = logoValidationError;
+    setErrors(nextErrors);
     if (Object.keys(nextErrors).length) { onToast('Please fill all the mandatory field of contact details with valid data before saving...', false); return; }
     setSaving(true);
-    try { await clientManagementApi.saveCompany(form); await onSaved(); onToast('Company saved.'); }
+    try { await clientManagementApi.saveCompany(request); await onSaved(); onToast('Company saved.'); }
     catch (error) { onToast(apiErrorMessage(error, 'Failed to save company.'), false); }
     finally { setSaving(false); }
   };
@@ -177,7 +203,7 @@ function NewCompanyForm({ sequence, onSaved, onToast }: { sequence: number; onSa
         <div className="cm-company-section cm-company-primary-section">
           <h3 className="cm-company-section-title">Company Primary Information</h3>
       <div style={{ background: '#e5faf2', marginBottom: 14, padding: '10px 9px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}><strong style={{ color: '#006b4f' }}>Client Company ID - {generatedCompanyCode}</strong><span style={{ fontSize: 9 }}>Auto Generated</span></div>
-          <PrimaryFields form={form} setForm={setForm} errors={errors} />
+          <PrimaryFields form={form} setForm={setForm} errors={errors} logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} />
         </div>
       </div>
       <div className="cm-company-detail-column">
@@ -202,7 +228,7 @@ function AddressRead({ address }: { address?: AddressDto }) {
   return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '16px 12px' }}>
     <DashField label="Address Line 1" value={address?.addressLine1} /><DashField label="Address Line 2" value={address?.addressLine2} />
     <DashField label="Country" value={address?.country} /><DashField label={stateLabel(address?.country)} value={address?.state} /><DashField label="City" value={address?.city} />
-    <DashField label="County" value={address?.county} /><DashField label="Zip Code" value={address?.zipCode} /><DashField label="Latitude" value={address?.latitude} /><DashField label="Longitude" value={address?.longitude} />
+    {address?.country !== CANADA && <DashField label="County" value={address?.county} />}<DashField label={zipLabel(address?.country)} value={address?.zipCode} /><DashField label="Latitude" value={address?.latitude} /><DashField label="Longitude" value={address?.longitude} />
   </div>;
 }
 
@@ -224,14 +250,18 @@ function CompanyDetails({ company, refresh, toast }: { company: CompanyDto; refr
   const [editing, setEditing] = useState<CompanyEdit>(null);
   const [form, setForm] = useState(() => companyRequest(company));
   const [errors, setErrors] = useState<Errors>({});
+  const [logoValidationError, setLogoValidationError] = useState('');
   const [saving, setSaving] = useState(false);
   useEffect(() => { setForm(companyRequest(company)); }, [company]);
-  const begin = (mode: CompanyEdit) => { setForm(companyRequest(company)); setErrors({}); setEditing(mode); };
+  const begin = (mode: CompanyEdit) => { setForm(companyRequest(company)); setErrors({}); setLogoValidationError(''); setEditing(mode); };
   const save = async () => {
-    const next = validateCompanyForm(form, Boolean(company.logoBase64)); setErrors(next);
+    const request = normalizeCompanyAddresses(form);
+    const next = validateCompanyForm(request, Boolean(company.logoBase64));
+    if (logoValidationError) next.logo = logoValidationError;
+    setErrors(next);
     if (Object.keys(next).length) { toast('Please fill all the mandatory field of contact details with valid data before saving...', false); return; }
     setSaving(true);
-    try { await clientManagementApi.saveCompany(form); await refresh(); setEditing(null); toast('Company saved.'); }
+    try { await clientManagementApi.saveCompany(request); await refresh(); setEditing(null); toast('Company saved.'); }
     catch (error) { toast(apiErrorMessage(error, 'Failed to save company.'), false); }
     finally { setSaving(false); }
   };
@@ -239,7 +269,7 @@ function CompanyDetails({ company, refresh, toast }: { company: CompanyDto; refr
   return <div style={{ padding: 16, background: '#f8fafc' }} className="cm-scope">
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, .9fr) minmax(460px, 1.35fr)', gap: 16 }}>
       <section style={section}><SectionTitle onEdit={editing ? undefined : () => begin('primary')}>Primary Information</SectionTitle>
-        {editing === 'primary' ? <><PrimaryFields form={form} setForm={setForm} errors={errors} existingLogo />{actions}</> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '18px 14px' }}>
+        {editing === 'primary' ? <><PrimaryFields form={form} setForm={setForm} errors={errors} existingLogo logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} />{actions}</> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '18px 14px' }}>
           <DashField label="Company Name" value={company.companyName} /><DashField label="Domicile Country" value={company.domicileCountry} /><DashField label="State of Domicile" value={company.stateOfDomicile} /><DashField label="NAIC Code" value={company.naicCode} /><DashField label="Client Company ID" value={company.companyCode} /><DashField label="Status" value={company.status} /><DashField label="Email ID" value={company.emailId} /><DashField label="Telephone Number" value={formatPhoneWithFlag(company.telephoneNumber, company.telephoneNumberCc)} /><DashField label="Extension" value={company.extension} /><DashField label="Federal Tax ID" value={company.federalTaxId} /><DashField label="Client URL" value={company.url} /><DashField label="Business Description" value={company.businessDescription} />
         </div>}
       </section>

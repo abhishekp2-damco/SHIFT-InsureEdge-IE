@@ -2,10 +2,12 @@
 // Layout wrapper for the Quotes & Policies landing pages (register grids) plus the
 // WizardSidebar used by the New Submission wizard. Ported from the prototype's
 // components/QuotesPoliciesLandingShell.tsx + WizardSidebar (originally in App.tsx).
-import { useState } from 'react';
-import { ChevronRight, FileCheck2, FileClock, FilePlus2, FileText, PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronRight, FileCheck2, FileClock, FilePenLine, FileText, type LucideIcon } from 'lucide-react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { policyStatusLabel } from '../../utils/policyStatus';
+import { authApi } from '../../api/auth';
+import { useIsProducer } from '../../hooks/useIsProducer';
 import './QuotesPolicies.css';
 
 type ActionItem = {
@@ -19,7 +21,7 @@ const sections: Array<{ title: string; items: ActionItem[] }> = [
   {
     title: 'Individual',
     items: [
-      { label: 'New Business Quote', to: '/quotes-policies/individual/nb-quotes', icon: FilePlus2 },
+      { label: 'New Business Quote', to: '/quotes-policies/individual/nb-quotes', icon: FilePenLine },
       { label: 'Endorsement Quote', to: '/quotes-policies/individual/endorsements', icon: FileText },
       { label: 'Renewal Quote', to: '/quotes-policies/individual/renewals', icon: FileClock },
       { label: 'Policies', to: '/quotes-policies/individual/policies', icon: FileCheck2 },
@@ -28,6 +30,16 @@ const sections: Array<{ title: string; items: ActionItem[] }> = [
   // D1-16: the "Business" section (business NB/Endorsement/Renewal/Policies registers) is not
   // used by H&B, so it is hidden here and its routes redirect to Individual (see App.tsx).
 ];
+
+const businessSection: { title: string; items: ActionItem[] } = {
+  title: 'Business',
+  items: [
+    { label: 'New Business Quote', to: '/quotes-policies/business/nb-quotes', icon: FilePenLine },
+    { label: 'Endorsement Quote', to: '/quotes-policies/business/endorsements', icon: FileText },
+    { label: 'Renewal Quote', to: '/quotes-policies/business/renewals', icon: FileClock },
+    { label: 'Policies', to: '/quotes-policies/business/policies', icon: FileCheck2 },
+  ],
+};
 
 const recentActivity = [
   'Submission viewed for Quote ID 0000003752',
@@ -41,62 +53,136 @@ function isActivePath(pathname: string, to: string, matches: string[] = []) {
   return [to, ...matches].some(path => pathname === path || pathname.startsWith(`${path}/`));
 }
 
+function ActionsToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return collapsed ? (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="m2.5 5.5 3.5 3.5-3.5 3.5M8 5h7.5M8 9h7.5M8 13h7.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ) : (
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M2.5 5h7.5M2.5 9H10M2.5 13H10m5.5-7.5L12 9l3.5 3.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export default function QuotesPoliciesLandingShell() {
   const location = useLocation();
+  const linkedProducer = useIsProducer();
   // QP-06: the New Submission landing (Producer & Product Details) keeps the Actions panel;
   // the wizard itself has its own sidebar.
-  const isSubmissionLanding = new URLSearchParams(location.search).get('landing') === '1';
+  const searchParams = new URLSearchParams(location.search);
+  const isSubmissionLanding = searchParams.get('landing') === '1';
+  const submissionInsuredType = searchParams.get('insuredType')?.toLowerCase() === 'business' ? 'business' : 'individual';
+  const isNewSubmissionLanding = location.pathname === '/quotes-policies/submissions/new' && isSubmissionLanding;
   const hideLandingActions = location.pathname.startsWith('/quotes-policies/submissions') && !isSubmissionLanding;
   // QP-01: the hamburger collapses / expands the Actions panel.
   const [collapsed, setCollapsed] = useState(false);
+  const [hasProducerRole, setHasProducerRole] = useState(false);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    Individual: true,
+    Business: true,
+  });
+
+  useEffect(() => {
+    if (!isNewSubmissionLanding || linkedProducer !== false) return;
+
+    let cancelled = false;
+    authApi.getMyProfile()
+      .then(profile => {
+        if (!cancelled) {
+          setHasProducerRole(String(profile.roleName || '').toLowerCase().includes('producer'));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHasProducerRole(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [isNewSubmissionLanding, linkedProducer]);
+
+  // Some Producer-role users do not have a linked Producer row, so retain the
+  // profile-role fallback used by the New Submission form itself.
+  const hideRecentActivity = isNewSubmissionLanding && (linkedProducer === true || hasProducerRole);
+  const showProducerSubmissionActions = hideRecentActivity;
+  const visibleSections = showProducerSubmissionActions ? [...sections, businessSection] : sections;
 
   return (
     <div className="qp-scope" style={{ height: '100%' }}>
       <div className="app-body" style={{ height: '100%' }}>
         {!hideLandingActions && (
-          <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+          <aside className={`sidebar landing-actions-sidebar${showProducerSubmissionActions ? ' producer-submission-actions' : ''}${collapsed ? ' sidebar-collapsed' : ''}`}>
             <div className="sidebar-header">
-              <span>Actions</span>
-              <button className="sidebar-toggle" type="button" title={collapsed ? 'Expand actions' : 'Collapse actions'} onClick={() => setCollapsed(c => !c)}>
-                {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+              {!collapsed && <span>Actions</span>}
+              <button className="sidebar-toggle" type="button" aria-expanded={!collapsed} aria-label={collapsed ? 'Expand Actions menu' : 'Collapse Actions menu'} title={collapsed ? 'Expand Actions' : 'Collapse Actions'} onClick={() => setCollapsed(c => !c)}>
+                <ActionsToggleIcon collapsed={collapsed} />
               </button>
             </div>
 
-            {sections.map(section => (
-              <div key={section.title}>
-                <div className="nav-section-header">
-                  <ChevronRight size={13} className="nav-section-chevron open" />
-                  <span>{section.title}</span>
-                </div>
-                {section.items.map(({ label, to, icon: Icon, match }) => {
-                  const moduleActive = isActivePath(location.pathname, to, match);
+            {collapsed ? (
+              <button className="sidebar-collapsed-strip" type="button" onClick={() => setCollapsed(false)} aria-label="Expand Actions menu">
+                <span className="sidebar-collapsed-label">Actions</span>
+              </button>
+            ) : (
+              <div className="landing-actions-content">
+                {visibleSections.map(section => {
+                  const sectionOpen = !showProducerSubmissionActions || openSections[section.title] !== false;
+                  const sectionHeader = showProducerSubmissionActions ? (
+                    <button
+                      className="nav-section-header"
+                      type="button"
+                      aria-expanded={sectionOpen}
+                      onClick={() => setOpenSections(current => ({ ...current, [section.title]: !sectionOpen }))}
+                    >
+                      <ChevronRight size={13} className={`nav-section-chevron${sectionOpen ? ' open' : ''}`} />
+                      <span>{section.title}</span>
+                    </button>
+                  ) : (
+                    <div className="nav-section-header">
+                      <ChevronRight size={13} className="nav-section-chevron open" />
+                      <span>{section.title}</span>
+                    </div>
+                  );
 
                   return (
-                    <NavLink
-                      key={`${section.title}-${label}`}
-                      to={to}
-                      className={({ isActive }) => `nav-item${isActive || moduleActive ? ' active' : ''}`}
-                    >
-                      <Icon size={14} className="nav-icon" />
-                      <span>{label}</span>
-                    </NavLink>
+                    <div className={showProducerSubmissionActions ? 'nav-accordion' : undefined} key={section.title}>
+                      {sectionHeader}
+                      {sectionOpen && section.items.map(({ label, to, icon: Icon, match }) => {
+                        const newSubmissionItemActive = showProducerSubmissionActions
+                          && label === 'New Business Quote'
+                          && section.title.toLowerCase() === submissionInsuredType;
+                        const moduleActive = newSubmissionItemActive || isActivePath(location.pathname, to, match);
+
+                        return (
+                          <NavLink
+                            key={`${section.title}-${label}`}
+                            to={to}
+                            className={({ isActive }) => `nav-item${isActive || moduleActive ? ' active' : ''}`}
+                          >
+                            <Icon size={14} className="nav-icon" />
+                            <span>{label}</span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
                   );
                 })}
-              </div>
-            ))}
 
-            <div className="recent-activity">
-              <div className="recent-activity-title">Recent Activity</div>
-              {recentActivity.map(item => (
-                <div className="activity-item" key={item}>
-                  <div>
-                    <div className="act-label">View</div>
-                    <div className="act-text">{item}</div>
+                {!hideRecentActivity && (
+                  <div className="recent-activity">
+                    <div className="recent-activity-title">Recent Activity</div>
+                    {recentActivity.map(item => (
+                      <div className="activity-item" key={item}>
+                        <div>
+                          <div className="act-label">View</div>
+                          <div className="act-text">{item}</div>
+                        </div>
+                        <span className="act-arrow">&#8250;</span>
+                      </div>
+                    ))}
                   </div>
-                  <span className="act-arrow">&#8250;</span>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+            )}
           </aside>
         )}
 
@@ -130,9 +216,10 @@ interface WizardSidebarProps {
   onStepClick: (n: number) => void;
   screenCode?: string;
   recordLabel?: string;
+  maxNavigableStep?: number;
 }
 
-export function WizardSidebar({ submissionId, status, currentStep, onStepClick, screenCode = '', recordLabel = 'Submission' }: WizardSidebarProps) {
+export function WizardSidebar({ submissionId, status, currentStep, onStepClick, screenCode = '', recordLabel = 'Submission', maxNavigableStep }: WizardSidebarProps) {
   const normalizedScreenCode = String(screenCode).toUpperCase();
   const isEndorsement = normalizedScreenCode.startsWith('ENDORSEMENT');
   const isRenewal = normalizedScreenCode.startsWith('RENEWAL');
@@ -154,6 +241,7 @@ export function WizardSidebar({ submissionId, status, currentStep, onStepClick, 
   const currentStatus = status || 'Draft';
   // QP-01: the hamburger collapses / expands the wizard sidebar.
   const [collapsed, setCollapsed] = useState(false);
+  const canNavigate = (step: number) => maxNavigableStep == null || step <= maxNavigableStep;
 
   const stepStatus = (step: number): StepStatus => {
     if (step === currentStep) return 'active';
@@ -192,14 +280,14 @@ export function WizardSidebar({ submissionId, status, currentStep, onStepClick, 
         <button className="sidebar-toggle" type="button" title={collapsed ? 'Expand' : 'Collapse'} onClick={() => setCollapsed(c => !c)}>&#8801;</button>
       </div>
       <div className="submission-sidebar">
-        <div className="submission-id-box">{isPolicy ? 'Policy ID' : 'ID'} - {submissionId}</div>
+        <div className="submission-id-box">{isPolicy ? submissionId : `ID - ${submissionId}`}</div>
         <div className="submission-status">
           Status: <span className={`badge badge-${currentStatus.toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{policyStatusLabel(currentStatus)}</span>
         </div>
 
         <div className="step-list">
           {mainSteps.map(step => (
-            <div key={step.n} onClick={() => onStepClick(step.n)}>
+            <div key={step.n} onClick={() => canNavigate(step.n) && onStepClick(step.n)} aria-disabled={!canNavigate(step.n)} style={{ cursor: canNavigate(step.n) ? 'pointer' : 'not-allowed' }}>
               <div className="step-item">
                 <StepCircle state={stepStatus(step.n)} />
                 <span className={`step-label ${stepStatus(step.n)}`}>{step.label}</span>
@@ -214,7 +302,7 @@ export function WizardSidebar({ submissionId, status, currentStep, onStepClick, 
           </div>
 
           {riskSubSteps.map((step, index) => (
-            <div key={step.n} onClick={() => onStepClick(step.n)}>
+            <div key={step.n} onClick={() => canNavigate(step.n) && onStepClick(step.n)} aria-disabled={!canNavigate(step.n)} style={{ cursor: canNavigate(step.n) ? 'pointer' : 'not-allowed', opacity: canNavigate(step.n) ? 1 : 0.65 }}>
               <div className="step-item" style={{ paddingLeft: 32 }}>
                 <StepCircle state={stepStatus(step.n)} />
                 <span className={`step-label ${stepStatus(step.n)}`}>{step.label}</span>
@@ -225,7 +313,7 @@ export function WizardSidebar({ submissionId, status, currentStep, onStepClick, 
           <div className="step-connector dashed" />
 
           {lateSteps.map(step => (
-            <div key={step.n} onClick={() => onStepClick(step.n)}>
+            <div key={step.n} onClick={() => canNavigate(step.n) && onStepClick(step.n)} aria-disabled={!canNavigate(step.n)} style={{ cursor: canNavigate(step.n) ? 'pointer' : 'not-allowed', opacity: canNavigate(step.n) ? 1 : 0.65 }}>
               <div className="step-item">
                 <StepCircle state={stepStatus(step.n)} />
                 <span className={`step-label ${stepStatus(step.n)}`}>{step.label}</span>

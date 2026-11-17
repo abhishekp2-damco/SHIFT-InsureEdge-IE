@@ -1,6 +1,6 @@
 // AI_GENERATED | HUMAN_VALIDATION_REQUIRED
 // Hosted-service equivalent of OutSystems IntermediaryCommissionDisburseCloud's "last day
-// of the month" wake timer. Mirrors AutoRenewalHostedService's structure.
+// of the month" wake timer.
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -11,74 +11,116 @@ namespace InsureEdge.Infrastructure.BackgroundJobs
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<IntermediaryCommissionDisburseHostedService> _logger;
-        private Timer? _timer;
+        private readonly TimeProvider _timeProvider;
+        private readonly SemaphoreSlim _executionLock = new(1, 1);
 
         // Runs at 3 AM UTC on the last day of each calendar month.
-        private readonly int _scheduleHour = 3;
+        private const int ScheduleHourUtc = 3;
 
         public IntermediaryCommissionDisburseHostedService(
-            IServiceProvider serviceProvider, ILogger<IntermediaryCommissionDisburseHostedService> logger)
+            IServiceProvider serviceProvider,
+            ILogger<IntermediaryCommissionDisburseHostedService> logger,
+            TimeProvider? timeProvider = null)
         {
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _timeProvider = timeProvider ?? TimeProvider.System;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("IntermediaryCommissionDisburseHostedService starting");
 
-            var delay = CalculateDelayUntilNextRun();
-            _logger.LogInformation("Next IntermediaryCommissionDisburse execution in {Hours:F2} hours", delay.TotalHours);
+            // Replaying the most recent scheduled period makes restarts safe. ExecuteAsync's
+            // existing PENDING -> PROCESSING database claim makes the replay idempotent.
+            var mostRecentRun = GetMostRecentScheduledRunUtc(_timeProvider.GetUtcNow());
+            await ExecuteScheduledRunAsync(mostRecentRun, stoppingToken);
 
-            _timer = new Timer(
-                callback: async _ => await ExecuteJobAsync(stoppingToken),
-                state: null,
-                dueTime: delay,
-                period: TimeSpan.FromDays(1)); // re-checked daily; job itself only acts on the last day.
+            var nextRun = GetNextScheduledRunUtc(_timeProvider.GetUtcNow());
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                var delay = nextRun - _timeProvider.GetUtcNow();
+                if (delay > TimeSpan.Zero)
+                {
+                    _logger.LogInformation(
+                        "Next IntermediaryCommissionDisburse execution is {ScheduledRunUtc}", nextRun);
+                    await Task.Delay(delay, _timeProvider, stoppingToken);
+                }
 
-            await Task.Delay(Timeout.Infinite, stoppingToken);
+                await ExecuteScheduledRunAsync(nextRun, stoppingToken);
+                nextRun = GetNextScheduledRunUtc(nextRun);
+            }
         }
 
-        private async Task ExecuteJobAsync(CancellationToken stoppingToken)
+        internal async Task<bool> ExecuteScheduledRunAsync(
+            DateTimeOffset scheduledRunUtc, CancellationToken stoppingToken)
         {
-            var today = DateTime.UtcNow;
-            if (today.Day != DateTime.DaysInMonth(today.Year, today.Month))
+            if (!await _executionLock.WaitAsync(0, stoppingToken))
             {
-                _logger.LogInformation("IntermediaryCommissionDisburse: not the last day of the month, skipping");
-                return;
+                _logger.LogWarning(
+                    "IntermediaryCommissionDisburse execution for {ScheduledRunUtc} skipped because another execution is active",
+                    scheduledRunUtc);
+                return false;
             }
 
             try
             {
-                _logger.LogInformation("IntermediaryCommissionDisburseTimerJob execution triggered");
+                _logger.LogInformation(
+                    "IntermediaryCommissionDisburseTimerJob execution triggered for period {CommissionPeriod:yyyy-MM}",
+                    scheduledRunUtc);
                 using var scope = _serviceProvider.CreateScope();
-                var timerJob = scope.ServiceProvider.GetRequiredService<IntermediaryCommissionDisburseTimerJob>();
-                await timerJob.ExecuteAsync();
+                var timerJob = scope.ServiceProvider.GetRequiredService<IIntermediaryCommissionDisburseTimerJob>();
+                await timerJob.SynchronizeStatusesAsync(stoppingToken);
+                await timerJob.ExecuteAsync(DateOnly.FromDateTime(scheduledRunUtc.UtcDateTime), stoppingToken);
+                return true;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "IntermediaryCommissionDisburseTimerJob execution failed");
+                return false;
+            }
+            finally
+            {
+                _executionLock.Release();
             }
         }
 
-        private TimeSpan CalculateDelayUntilNextRun()
+        internal static DateTimeOffset GetMostRecentScheduledRunUtc(DateTimeOffset nowUtc)
         {
-            var now = DateTime.UtcNow;
-            var scheduledTime = now.Date.AddHours(_scheduleHour);
-            if (now > scheduledTime) scheduledTime = scheduledTime.AddDays(1);
-            return scheduledTime - now;
+            nowUtc = nowUtc.ToUniversalTime();
+            var thisMonth = ScheduledRunUtc(nowUtc.Year, nowUtc.Month);
+            if (nowUtc >= thisMonth) return thisMonth;
+
+            var previousMonth = nowUtc.AddMonths(-1);
+            return ScheduledRunUtc(previousMonth.Year, previousMonth.Month);
         }
+
+        internal static DateTimeOffset GetNextScheduledRunUtc(DateTimeOffset afterUtc)
+        {
+            afterUtc = afterUtc.ToUniversalTime();
+            var thisMonth = ScheduledRunUtc(afterUtc.Year, afterUtc.Month);
+            if (afterUtc < thisMonth) return thisMonth;
+
+            var nextMonth = afterUtc.AddMonths(1);
+            return ScheduledRunUtc(nextMonth.Year, nextMonth.Month);
+        }
+
+        private static DateTimeOffset ScheduledRunUtc(int year, int month) =>
+            new(year, month, DateTime.DaysInMonth(year, month), ScheduleHourUtc, 0, 0, TimeSpan.Zero);
 
         public override async Task StopAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("IntermediaryCommissionDisburseHostedService stopping");
-            _timer?.Dispose();
             await base.StopAsync(cancellationToken);
         }
 
         public override void Dispose()
         {
-            _timer?.Dispose();
+            _executionLock.Dispose();
             base.Dispose();
         }
     }

@@ -410,14 +410,51 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         if (policy == null) return null;
 
         var product = policy.Products.FirstOrDefault();
-        var address = policy.RiskAddresses.FirstOrDefault(a => a.IsActive != false)
-            ?? policy.RiskAddresses.FirstOrDefault();
-        var addressText = address == null ? null : string.Join(", ", new[]
+        var policyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
+        var subProductName = product?.SubProduct?.SubProductName;
+        if (string.IsNullOrWhiteSpace(subProductName))
+            subProductName = policy.SubProduct;
+        if (string.IsNullOrWhiteSpace(subProductName))
         {
-            address.AddressLine1, address.AddressLine2, address.City, address.State, address.County, address.Country, address.ZipCode
-        }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            subProductName = await _db.Policies
+                .Where(p => p.ClientId == clientId
+                    && policyIds.Contains(p.Id)
+                    && p.SubProduct != null
+                    && p.SubProduct != "")
+                .OrderByDescending(p => p.Id)
+                .Select(p => p.SubProduct)
+                .FirstOrDefaultAsync();
+        }
+        if (string.IsNullOrWhiteSpace(subProductName))
+            subProductName = await SubmissionFormTextAsync(clientId, policy.QuoteNumber, "subProduct");
+        subProductName = string.IsNullOrWhiteSpace(subProductName) ? null : subProductName.Trim();
+
+        var address = policy.RiskAddresses
+            .Where(HasAddressValue)
+            .OrderByDescending(a => a.IsActive == true)
+            .ThenBy(a => a.LocationNumber)
+            .FirstOrDefault();
+        var addressText = FormatAddress(address);
+
+        // An endorsement/renewal can be the current policy row before its cloned address has
+        // been populated. Reuse the newest non-empty address from the same policy number.
+        if (addressText == null)
+        {
+            var historicalAddresses = await _db.RiskAddresses
+                .Where(a => a.ClientId == clientId && policyIds.Contains(a.PolicyId))
+                .OrderByDescending(a => a.IsActive == true)
+                .ThenByDescending(a => a.UpdatedOn ?? a.CreatedOn)
+                .ThenBy(a => a.LocationNumber)
+                .ToListAsync();
+            var historicalAddress = historicalAddresses.FirstOrDefault(HasAddressValue);
+            addressText = FormatAddress(historicalAddress);
+        }
+
         // QA IP-18 / IP-22: older policies have no risk address row; use their submission's address.
         addressText ??= await SubmissionAddressTextAsync(clientId, policy.QuoteNumber);
+        // Legacy rows may only contain the first address line on Policy.Address. Showing it is
+        // preferable to returning a blank Address column when no normalized/source row exists.
+        addressText ??= string.IsNullOrWhiteSpace(policy.Address) ? null : policy.Address.Trim();
 
         var producers = policy.Commissions.Select(ToProducerDto).ToList();
 
@@ -443,6 +480,8 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
                 amountPaid,
                 amountDue,
                 unbilled,
+                PolicyRules.NextPaymentDueAmount(
+                    policy.Premium.Transactions.Select(t => (t.DueDate, t.AmountDue, t.IsPaid == true))),
                 PolicyRules.OverdueDays(
                     policy.Premium.Transactions.Select(t => (t.DueDate, t.IsPaid == true)),
                     DateOnly.FromDateTime(DateTime.UtcNow))
@@ -450,9 +489,8 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         }
 
         // Claims stay on the row they were opened against, so read across every row of this number.
-        var claimPolicyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
         var claims = await _db.Claims
-            .Where(c => claimPolicyIds.Contains(c.PolicyId))
+            .Where(c => policyIds.Contains(c.PolicyId))
             .Select(c => new PolicyClaimSummaryDto(c.ClaimNumber, c.Status))
             .ToListAsync();
 
@@ -465,9 +503,10 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
         return new PolicySummaryDto(
             policy.PolicyNumber,
+            policy.QuoteNumber,
             policy.PolicyStatus,
             product?.Product?.ProductName,
-            product?.SubProduct?.SubProductName,
+            subProductName,
             policy.EffectiveDate?.ToString("MM-dd-yyyy"),
             policy.ExpiryDate?.ToString("MM-dd-yyyy"),
             policy.Account?.FirstName,
@@ -699,29 +738,111 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         if (policy == null) return new List<PolicyTimelineEntryDto>();
 
         var policyIds = await PolicyIdsForNumberAsync(clientId, policyNumber);
-        var transactionIds = await _db.PolicyTransactions
+        var transactions = await _db.PolicyTransactions
             .Where(t => t.ClientId == clientId && policyIds.Contains(t.MainPolicyId) && t.IsShowInTimeline)
-            .Select(t => t.Id)
+            .Select(t => new
+            {
+                t.Id,
+                t.ClientId,
+                t.MainPolicyId,
+                t.TransactionType,
+                TransactionTypeLabel = t.TransactionTypeRef != null ? t.TransactionTypeRef.Label : null,
+                t.CreatedBy,
+                t.CreatedOn,
+            })
             .ToListAsync();
-        if (transactionIds.Count == 0) return new List<PolicyTimelineEntryDto>();
 
-        var entries = await _db.Audits
+        // Compatibility for endorsements initiated before Tools -> Endorse Policy began
+        // writing policy_transaction rows. These are real draft policy records, not dummy
+        // Timeline data. Only include a draft when no transaction exists for that exact
+        // policy row, so the transaction-backed entry remains authoritative and unique.
+        var legacyEndorsementDrafts = await _db.Policies
+            .Where(p => p.ClientId == clientId
+                && policyIds.Contains(p.Id)
+                && p.PolicyStatus == "Draft"
+                && (p.PolicyStage == "EndorsementIndividual" || p.PolicyStage == "EndorsementBusiness")
+                && !_db.PolicyTransactions.Any(t =>
+                    t.ClientId == clientId
+                    && t.MainPolicyId == p.Id
+                    && (t.TransactionType == "EndorsementIndividual" || t.TransactionType == "EndorsementBusiness")))
+            .Select(p => new
+            {
+                p.Id,
+                p.ClientId,
+                p.PolicyStage,
+                p.CreatedBy,
+                p.CreatedOn,
+            })
+            .ToListAsync();
+
+        if (transactions.Count == 0 && legacyEndorsementDrafts.Count == 0)
+            return new List<PolicyTimelineEntryDto>();
+
+        var transactionIds = transactions.Select(t => t.Id).ToList();
+        var audits = await _db.Audits
             .Where(a => a.ClientId == clientId && a.TransactionId != null && transactionIds.Contains(a.TransactionId.Value))
             .OrderBy(a => a.CreatedDateTime)
             .Select(a => new
             {
+                TransactionId = a.TransactionId!.Value,
                 a.ActivityDescription,
-                CreatedByName = a.CreatedBy == null ? null : _db.Users.Where(u => u.Id == a.CreatedBy).Select(u => u.FirstName + " " + u.LastName).FirstOrDefault(),
+                a.CreatedBy,
                 a.CreatedDateTime,
             })
             .ToListAsync();
 
-        return entries.Select(e => new PolicyTimelineEntryDto(
-            e.ActivityDescription ?? "",
-            e.CreatedByName ?? "System",
-            e.CreatedDateTime.ToString("MM-dd-yyyy"),
-            e.CreatedDateTime.ToString("HH:mm")
-        )).ToList();
+        // Audit rows are optional enrichment. Select at most one per transaction so an
+        // audit join can never duplicate a real policy transaction in the Timeline.
+        var firstAuditByTransaction = audits
+            .GroupBy(a => a.TransactionId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(a => a.CreatedDateTime).First());
+
+        var creatorIds = transactions
+            .Select(t => t.CreatedBy)
+            .Concat(firstAuditByTransaction.Values.Select(a => a.CreatedBy))
+            .Concat(legacyEndorsementDrafts.Select(draft => draft.CreatedBy))
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        var creatorNames = await _db.Users
+            .Where(u => u.ClientId == clientId && creatorIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.FirstName, u.LastName })
+            .ToDictionaryAsync(u => u.Id, u => $"{u.FirstName} {u.LastName}".Trim());
+
+        var sources = transactions.Select(t =>
+        {
+            firstAuditByTransaction.TryGetValue(t.Id, out var audit);
+            return new PolicyTimelineSource(
+                t.Id,
+                t.ClientId,
+                t.MainPolicyId,
+                t.TransactionType,
+                t.TransactionTypeLabel,
+                t.CreatedOn,
+                t.CreatedBy.HasValue && creatorNames.TryGetValue(t.CreatedBy.Value, out var transactionCreator)
+                    ? transactionCreator
+                    : null,
+                audit?.ActivityDescription,
+                audit?.CreatedBy is long auditCreatorId && creatorNames.TryGetValue(auditCreatorId, out var auditCreator)
+                    ? auditCreator
+                    : null);
+        }).ToList();
+
+        sources.AddRange(legacyEndorsementDrafts.Select(draft => new PolicyTimelineSource(
+            TransactionId: -draft.Id,
+            ClientId: draft.ClientId,
+            MainPolicyId: draft.Id,
+            TransactionType: draft.PolicyStage,
+            TransactionTypeLabel: "Endorsement",
+            CreatedOn: draft.CreatedOn,
+            TransactionCreatedByName: draft.CreatedBy.HasValue && creatorNames.TryGetValue(draft.CreatedBy.Value, out var draftCreator)
+                ? draftCreator
+                : null,
+            AuditActivityDescription: null,
+            AuditCreatedByName: null)));
+
+        return PolicyTimelineMapper.Map(sources, clientId, policyIds);
     }
 
     // ─── Shared helpers ───────────────────────────────────────────────────────
@@ -760,6 +881,28 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             .Where(p => p.ClientId == clientId && p.PolicyNumber == policyNumber)
             .Select(p => p.Id)
             .ToListAsync();
+
+    private static bool HasAddressValue(RiskAddress address) =>
+        !string.IsNullOrWhiteSpace(address.AddressLine1)
+        || !string.IsNullOrWhiteSpace(address.AddressLine2)
+        || !string.IsNullOrWhiteSpace(address.City)
+        || !string.IsNullOrWhiteSpace(address.State)
+        || !string.IsNullOrWhiteSpace(address.County)
+        || !string.IsNullOrWhiteSpace(address.ZipCode);
+
+    private static string? FormatAddress(RiskAddress? address) => address == null
+        ? null
+        : JoinAddressParts(address.AddressLine1, address.AddressLine2, address.City,
+            address.State, address.County, address.Country, address.ZipCode);
+
+    private static string? JoinAddressParts(params string?[] parts)
+    {
+        var values = parts
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToList();
+        return values.Count == 0 ? null : string.Join(", ", values);
+    }
 
     // The current row of every policy number in the Policies register.
     private async Task<List<long>> CurrentRegisterPolicyIdsAsync(long clientId, string insuredTypeLower)
@@ -800,14 +943,51 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
         {
             using var doc = JsonDocument.Parse(data);
             var root = doc.RootElement;
-            var source = root.TryGetProperty("locations", out var locations) && locations.ValueKind == JsonValueKind.Array && locations.GetArrayLength() > 0
-                ? locations[0]
-                : root.TryGetProperty("form", out var form) ? form : root;
-            var parts = new[] { "addressLine1", "addressLine2", "city", "state", "county", "country", "zip" }
-                .Select(key => source.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null)
-                .Where(v => !string.IsNullOrWhiteSpace(v))
-                .ToList();
-            return parts.Count == 0 ? null : string.Join(", ", parts);
+            string? ReadAddress(JsonElement source)
+            {
+                var parts = new[] { "addressLine1", "addressLine2", "city", "state", "county", "country", "zip" }
+                    .Select(key => source.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+                        ? value.GetString()
+                        : null)
+                    .ToArray();
+                return JoinAddressParts(parts);
+            }
+
+            string? addressText = null;
+            if (root.TryGetProperty("locations", out var locations)
+                && locations.ValueKind == JsonValueKind.Array
+                && locations.GetArrayLength() > 0)
+            {
+                addressText = ReadAddress(locations[0]);
+            }
+            if (addressText == null && root.TryGetProperty("form", out var form))
+                addressText = ReadAddress(form);
+            return addressText ?? ReadAddress(root);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<string?> SubmissionFormTextAsync(long clientId, string? quoteNumber, string fieldName)
+    {
+        if (string.IsNullOrWhiteSpace(quoteNumber)) return null;
+        var data = await _db.Submissions
+            .Where(s => s.ClientId == clientId && s.Id == quoteNumber)
+            .Select(s => s.Data)
+            .FirstOrDefaultAsync();
+        if (string.IsNullOrWhiteSpace(data)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(data);
+            var root = doc.RootElement;
+            var source = root.TryGetProperty("form", out var form) ? form : root;
+            if (!source.TryGetProperty(fieldName, out var value) || value.ValueKind != JsonValueKind.String)
+                return null;
+            var text = value.GetString();
+            return string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         }
         catch (JsonException)
         {
@@ -989,6 +1169,26 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             CreatedBy = userId,
             CreatedOn = now,
         };
+
+        // Tools -> Endorse Policy is itself a policy transaction in the source
+        // application. Persist it with the draft so Policy History and Timeline show the
+        // endorsement immediately. IssueEndorsementAsync completes this same row rather
+        // than creating a second transaction.
+        _db.PolicyTransactions.Add(new Domain.Entities.PolicyTransaction
+        {
+            ClientId = clientId,
+            PolicyNumber = draft.PolicyNumber,
+            EffectiveDate = draft.EffectiveDate,
+            ExpirationDate = draft.ExpiryDate,
+            TransactionType = endorsementCode,
+            TransactionEffectiveDate = request.TransactionEffectiveDate,
+            Status = "Draft",
+            MainPolicy = draft,
+            RedirectionPolicy = draft,
+            IsShowInTimeline = true,
+            CreatedBy = userId,
+            CreatedOn = now,
+        });
 
         CloneChildEntities(source, draft, clientId, userId, now, includePremiumAndCommission: true);
 

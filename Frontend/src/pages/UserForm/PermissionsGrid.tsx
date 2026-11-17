@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import type { ModuleRow, PermissionInput } from '../../types/User'
+import type { ModuleRow, PermissionInput, ScreenRow } from '../../types/User'
 import { sanitizePermissions } from '../../api/users'
 import { Toggle } from '../../components/PermissionMatrix/PermissionMatrix'
 
@@ -11,13 +11,51 @@ const PERM_COLS = [
   { key: 'isUploadPermission',    label: 'Upload' },
   { key: 'isDownloadPermission',  label: 'Download' },
   { key: 'isViewSensitiveInfo',   label: 'Sensitive Data' },
-  { key: 'isAccessSensitiveDoc',  label: 'Sensitive Docs' },
+  { key: 'isAccessSensitiveDoc',  label: 'Sensitive Documents' },
   { key: 'isApproveReject',       label: 'Approve/Reject' },
 ] as const
 
 type PermKey = (typeof PERM_COLS)[number]['key']
 
 const QUOTES_POLICIES = 'Quotes & Policies'
+
+const REPORT_CLAIMS = new Set([
+  'CLAIMMANAGEMENTREPORT', 'CLAIMFINANCIALREPORT', 'LOSSEXPOSUREREPORT',
+  'COMPLIANCEREPORT', 'CATASTROPHEREPORT',
+])
+const REPORT_POLICIES = new Set(['POLICYISSUANCE', 'NEWBUSINESSPREMIUM', 'TRANSACTIONTYPEREPORT'])
+
+function sectionName(moduleName: string, screen: ScreenRow): string {
+  const code = screen.screenCode.toUpperCase()
+  if (moduleName === QUOTES_POLICIES) return 'Individual'
+  if (moduleName === 'Claims') return screen.screenName
+  if (moduleName === 'Billing Management') return 'Payments'
+  if (moduleName === 'Report Management') {
+    if (code === 'MGATOISSUERREPORT') return 'Bordereaux'
+    if (REPORT_CLAIMS.has(code)) return 'Claims'
+    if (REPORT_POLICIES.has(code)) return 'Policies'
+    if (code === 'COMMISIONS') return 'Commissions'
+  }
+  if (moduleName === 'Accounts Maintenance') {
+    return code === 'BUSINESSACCOUNTS' ? 'Business' : 'Individual'
+  }
+  if (moduleName === 'Document Management') {
+    if (code === 'POLICYCOMMON') return 'Policy'
+    if (code === 'CLAIMSCOMMON') return 'Claims'
+    if (code === 'BILLINGCOMMON') return 'Billing'
+  }
+  return moduleName
+}
+
+function groupScreens(moduleName: string, screens: ScreenRow[]) {
+  return screens.reduce<Array<{ name: string; screens: ScreenRow[] }>>((groups, screen) => {
+    const name = sectionName(moduleName, screen)
+    const current = groups[groups.length - 1]
+    if (current?.name === name) current.screens.push(screen)
+    else groups.push({ name, screens: [screen] })
+    return groups
+  }, [])
+}
 
 interface Props {
   modules: ModuleRow[]
@@ -130,6 +168,7 @@ export default function PermissionsGrid({ modules, permissions, onChange, readOn
 
         {filteredModules.map(mod => {
           const open = openMods.has(mod.id)
+          const sections = groupScreens(mod.moduleName, mod.screens)
           return (
             <div key={mod.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
 
@@ -166,28 +205,19 @@ export default function PermissionsGrid({ modules, permissions, onChange, readOn
               {open && (
                 <div style={{ overflowX: 'auto', borderTop: '1px solid #e5e7eb' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ background: '#f9fafb' }}>
-                        <th style={{ padding: '7px 12px 7px 28px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#6b7280', minWidth: 180 }}>
-                          Screen
+                    {sections.map((section, sectionIndex) => (
+                    <tbody key={`${section.name}-${sectionIndex}`}>
+                      <tr style={{ background: '#f9fafb', borderTop: sectionIndex ? '1px solid #e5e7eb' : undefined }}>
+                        <th style={{ padding: '7px 12px 7px 28px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#374151', minWidth: 180 }}>
+                          {section.name}
                         </th>
                         {PERM_COLS.map(c => (
-                          <th key={c.key} style={{ padding: '7px 6px', textAlign: 'center', fontWeight: 600, fontSize: 11, color: '#6b7280', minWidth: 65, whiteSpace: 'nowrap' }}>
+                          <th key={c.key} style={{ padding: '7px 6px', textAlign: 'center', fontWeight: 600, fontSize: 11, color: '#374151', minWidth: 65, whiteSpace: 'nowrap' }}>
                             {c.label}
                           </th>
                         ))}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {/* UM-07: Quotes & Policies rows are the Individual screens (Business is hidden). */}
-                      {mod.moduleName === QUOTES_POLICIES && (
-                        <tr style={{ borderTop: '1px solid #f3f4f6', background: '#f9fafb' }}>
-                          <td colSpan={PERM_COLS.length + 1} style={{ padding: '6px 12px 6px 28px', fontWeight: 600, fontSize: 12, color: '#374151' }}>
-                            Individual
-                          </td>
-                        </tr>
-                      )}
-                      {mod.screens.map(screen => {
+                      {section.screens.map(screen => {
                         const p = getPerm(screen.id)
                         return (
                           <tr key={screen.id} style={{ borderTop: '1px solid #f3f4f6' }}>
@@ -214,6 +244,7 @@ export default function PermissionsGrid({ modules, permissions, onChange, readOn
                         )
                       })}
                     </tbody>
+                    ))}
                   </table>
                 </div>
               )}

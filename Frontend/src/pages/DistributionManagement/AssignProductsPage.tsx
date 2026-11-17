@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { distributionApi as api } from '../../api/distribution';
 import { SEEDED_SPECIALTY_PRODUCTS, SPECIALTY_INSURANCE_TYPE } from './ProductReferenceData';
+import { useSessionState } from '../../hooks/useSessionState';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -631,7 +632,7 @@ export default function AssignProductsPage({ onBack, onNext }: { onBack: () => v
   const [cond,             setCond]              = useState<CondState>(EMPTY_COND);
   const [vPending,         setVPending]          = useState<string[]>([]);
   const [vSearch,          setVSearch]           = useState('');
-  const [appliedFilters,   setAppliedFilters]    = useState<Record<string, ColFilter>>({});
+  const [appliedFilters, setAppliedFilters] = useSessionState<Record<string, ColFilter>>('grid-filters:distribution:assign-products', {});
   const [sortCol,          setSortCol]           = useState('');
   const [sortDir,          setSortDir]           = useState<'asc' | 'desc'>('asc');
 

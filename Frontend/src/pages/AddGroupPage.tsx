@@ -28,7 +28,7 @@ export default function AddGroupPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  const { data: users = [] } = useQuery({
+  const { data: users = [], isLoading: usersLoading, isError: usersFailed } = useQuery({
     queryKey: ['users'],
     queryFn: () => authApi.getUsers(),
   });
@@ -144,6 +144,8 @@ export default function AddGroupPage() {
           selectedIds={memberIds}
           users={users}
           onChange={setMemberIds}
+          isLoading={usersLoading}
+          loadError={usersFailed ? 'Unable to load eligible users. Please try again.' : null}
         />
       </div>
 

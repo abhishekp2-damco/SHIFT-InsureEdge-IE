@@ -15,6 +15,7 @@ public class CommissionPaymentTransaction
     public string? TransactionStatus { get; set; }
     public string? TransactionId { get; set; }
     public string? CustomerReferenceId { get; set; }
+    public string? PayeeReferenceId { get; set; }
     public string? PaymentMethod { get; set; }
     public string? ResponseCode { get; set; }
     public string? ResponseJson { get; set; }

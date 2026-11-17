@@ -29,19 +29,6 @@ const DEFAULT_MAX_LENGTHS: Partial<Record<AddressFieldName, number>> = {
 // Fields discarded when the user confirms unchecking "Enter Address Manually" (Country is kept).
 const MANUAL_FIELDS: AddressFieldName[] = ['googleSearch', 'addressLine1', 'addressLine2', 'state', 'city', 'county', 'zipCode', 'latitude', 'longitude'];
 
-function ClearSelect({ value, onChange, options, placeholder, disabled }: {
-  value: string; onChange: (value: string) => void; options: AddressOption[]; placeholder?: string; disabled?: boolean;
-}) {
-  return <div className="cs-wrap">
-    <select className="cs-select" value={value} disabled={disabled} onChange={event => onChange(event.target.value)}>
-      <option value="">{placeholder ?? 'Select...'}</option>
-      {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-    </select>
-    {value && !disabled && <button className="cs-clear" type="button" onClick={() => onChange('')}>×</button>}
-    <span className="cs-arrow">▼</span>
-  </div>;
-}
-
 function ErrorText({ message }: { message?: string }) {
   return message ? <span className="ferr"><span className="ferr__ico">⊘</span>{message}</span> : null;
 }
@@ -82,6 +69,11 @@ export function AddressFields({
   trailingColumns?: 2 | 3;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const limits = { ...DEFAULT_MAX_LENGTHS, ...maxLengths };
+  const changeText = (field: AddressFieldName, nextValue: string) => {
+    const maxLength = limits[field];
+    onChange(field, maxLength === undefined ? nextValue : nextValue.slice(0, maxLength));
+  };
   const entryDisabled = disabled || !value.enterManually;
   // Callers store either a code ("CA") or a name ("Canada"); compare on the display name.
   const countryName = countryOptions.find(option => option.value === value.country)?.label ?? value.country;
@@ -101,8 +93,6 @@ export function AddressFields({
     for (const field of MANUAL_FIELDS) onChange(field, '');
     onChange('enterManually', false);
   };
-  const limits = { ...DEFAULT_MAX_LENGTHS, ...maxLengths };
-
   return <>
     <div className="fc fg-mb">
       <label className="fl-plain">Google Address Search</label>
@@ -110,13 +100,13 @@ export function AddressFields({
         disabled={disabled || value.enterManually}
         placeholder="Start typing an address"
         onSelect={place => {
-          onChange('googleSearch', [place.addressLine1, place.city, place.state, place.country].filter(Boolean).join(', '));
-          onChange('addressLine1', place.addressLine1);
-          onChange('addressLine2', place.addressLine2 ?? '');
+          changeText('googleSearch', [place.addressLine1, place.city, place.state, place.country].filter(Boolean).join(', '));
+          changeText('addressLine1', place.addressLine1);
+          changeText('addressLine2', place.addressLine2 ?? '');
           onChange('country', place.country);
           onChange('state', place.state);
-          onChange('city', place.city);
-          onChange('county', place.county);
+          changeText('city', place.city);
+          changeText('county', place.county);
           onChange('zipCode', place.zip);
           onChange('latitude', place.latitude);
           onChange('longitude', place.longitude);
@@ -129,19 +119,19 @@ export function AddressFields({
     </label>
     <div className="fg2 fg-mb">
       <div className="fc"><label className="fl"><span className="req">*</span> Address Line 1</label>
-        <input className={`fi${errors.addressLine1 ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.addressLine1} onChange={event => onChange('addressLine1', event.target.value)} disabled={entryDisabled} maxLength={limits.addressLine1} />
+        <input className={`fi${errors.addressLine1 ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.addressLine1} onChange={event => changeText('addressLine1', event.target.value)} disabled={entryDisabled} maxLength={limits.addressLine1} />
         <ErrorText message={errors.addressLine1} /></div>
       <div className="fc"><label className="fl">Address Line 2 <span className="fi-info">ⓘ</span></label>
-        <input className={`fi${errors.addressLine2 ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.addressLine2} onChange={event => onChange('addressLine2', event.target.value)} disabled={entryDisabled} maxLength={limits.addressLine2} />
+        <input className={`fi${errors.addressLine2 ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.addressLine2} onChange={event => changeText('addressLine2', event.target.value)} disabled={entryDisabled} maxLength={limits.addressLine2} />
         <ErrorText message={errors.addressLine2} /></div>
     </div>
     <div className="fg3 fg-mb">
-      <div className="fc"><label className="fl"><span className="req">*</span> Country</label><SearchableSelect value={value.country} onChange={changeCountry} options={countryOptions} placeholder="Search..." clearable disabled={disabled} /><ErrorText message={errors.country} /></div>
-      <div className="fc"><label className="fl"><span className="req">*</span> {stateLabel ?? fv.stateLabel(countryName)}</label><ClearSelect value={value.state} onChange={next => onChange('state', next)} options={stateOptions} placeholder="Select..." disabled={disabled} /><ErrorText message={errors.state} /></div>
-      <div className="fc"><label className="fl"><span className="req">*</span> City</label><input className={`fi${errors.city ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.city} onChange={event => onChange('city', event.target.value)} disabled={entryDisabled} maxLength={limits.city} /><ErrorText message={errors.city} /></div>
+      <div className="fc"><label className="fl"><span className="req">*</span> Country</label><SearchableSelect value={value.country} onChange={changeCountry} options={countryOptions} placeholder="Search..." clearable disabled={entryDisabled} appearance="user-reference" /><ErrorText message={errors.country} /></div>
+      <div className="fc"><label className="fl"><span className="req">*</span> {stateLabel ?? fv.stateLabel(countryName)}</label><SearchableSelect value={value.state} onChange={next => onChange('state', next)} options={stateOptions} placeholder="Search..." clearable disabled={entryDisabled} appearance="user-reference" /><ErrorText message={errors.state} /></div>
+      <div className="fc"><label className="fl"><span className="req">*</span> City</label><input className={`fi${errors.city ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.city} onChange={event => changeText('city', event.target.value)} disabled={entryDisabled} maxLength={limits.city} /><ErrorText message={errors.city} /></div>
     </div>
     <div className={countyVisible ? (trailingColumns === 3 ? 'fg3 fg-mb' : 'fg2 fg-mb') : 'fg1 fg-mb'}>
-      {countyVisible && <div className="fc"><label className={countyRequired ? 'fl' : 'fl-plain'}>{countyRequired && <span className="req">* </span>}County</label><input className={`fi${errors.county ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.county} onChange={event => onChange('county', event.target.value)} disabled={entryDisabled} maxLength={limits.county} /><ErrorText message={errors.county} /></div>}
+      {countyVisible && <div className="fc"><label className={countyRequired ? 'fl' : 'fl-plain'}>{countyRequired && <span className="req">* </span>}County</label><input className={`fi${errors.county ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.county} onChange={event => changeText('county', event.target.value)} disabled={entryDisabled} maxLength={limits.county} /><ErrorText message={errors.county} /></div>}
       <div className="fc"><label className="fl"><span className="req">*</span> {zipLabel ?? fv.zipLabel(countryName)}</label><input className={`fi${errors.zipCode ? ' fi--err' : ''}${entryDisabled ? ' fi--disabled' : ''}`} value={value.zipCode} onChange={event => onChange('zipCode', event.target.value)} disabled={entryDisabled} maxLength={limits.zipCode} /><ErrorText message={errors.zipCode} /></div>
     </div>
     {/* UM-12: Latitude / Longitude stay disabled until Enter Address Manually is checked. */}

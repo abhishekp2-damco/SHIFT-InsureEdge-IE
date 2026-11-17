@@ -13,6 +13,26 @@ public class PolicyRulesTests
             rows.Where(r => PolicyRules.IsCurrentCandidate(r.Type, r.Status)), r => r.Status, r => r.Id)?.Id;
 
     [Fact]
+    public void Policy_number_matches_the_outsystems_four_segment_format() =>
+        Assert.Equal("001-00004-0000015-00", PolicyRules.FormatPolicyNumber(1, 4, 15));
+
+    [Theory]
+    [InlineData("001-00004-0000015-00", 15)]
+    [InlineData("HB-2026-000022", 22)]
+    public void Policy_sequence_is_read_from_current_and_legacy_numbers(string value, int expected)
+    {
+        Assert.True(PolicyRules.TryGetPolicySequence(value, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData("HB-2026")]
+    [InlineData("001-00004-15-00")]
+    [InlineData("")]
+    public void Invalid_policy_numbers_do_not_supply_a_sequence(string value) =>
+        Assert.False(PolicyRules.TryGetPolicySequence(value, out _));
+
+    [Fact]
     public void Endorsed_policy_resolves_to_the_active_row_not_the_replaced_one() =>
         Assert.Equal(2, Pick(new Row(1, "POLICY", "Inactive"), new Row(2, "POLICY", "Active")));
 
@@ -74,4 +94,23 @@ public class PolicyRulesTests
         var today = new DateOnly(2026, 11, 4);
         Assert.Equal(0, PolicyRules.OverdueDays(new[] { (new DateOnly(2026, 11, 4), false), (new DateOnly(2026, 9, 1), true) }, today));
     }
+
+    [Fact]
+    public void Next_payment_due_amount_sums_only_the_earliest_unpaid_due_date()
+    {
+        Assert.Equal(17540.60m, PolicyRules.NextPaymentDueAmount(new[]
+        {
+            (new DateOnly(2026, 10, 25), 500m, true),
+            (new DateOnly(2026, 11, 1), 17000m, false),
+            (new DateOnly(2026, 11, 1), 540.60m, false),
+            (new DateOnly(2026, 12, 1), 17540.60m, false),
+        }));
+    }
+
+    [Fact]
+    public void Next_payment_due_amount_is_zero_when_the_policy_is_fully_paid() =>
+        Assert.Equal(0m, PolicyRules.NextPaymentDueAmount(new[]
+        {
+            (new DateOnly(2026, 11, 1), 17540.60m, true),
+        }));
 }

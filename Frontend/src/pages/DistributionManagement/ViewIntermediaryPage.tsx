@@ -114,6 +114,7 @@ function DetailsTab({ record, onRecordChange }: {
 
   const [editContact, setEditContact] = useState(false);
   const [contacts, setContacts] = useState<any[]>([]);
+  const [contactErrors, setContactErrors] = useState<Record<string, string>>({});
   const contactsRef = useRef<any[]>([]);
 
   const [nrStates, setNrStates]     = useState<any[]>([]);
@@ -261,6 +262,10 @@ function DetailsTab({ record, onRecordChange }: {
 
   async function saveContacts() {
     const iid = record.id as number;
+    const errors: Record<string, string> = {};
+    contacts.forEach((contact, index) => fv.checkPhonesDiffer(errors, `${index}_phone`, `${index}_altPhone`, contact.phone, contact.altPhone));
+    setContactErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     try {
       if (iid) {
         for (const c of contacts) {
@@ -725,7 +730,7 @@ function DetailsTab({ record, onRecordChange }: {
                     </div>
                     <div className="vi-field">
                       <span className="vi-label">Telephone Number</span>
-                      <span className="vi-value vi-value--mono">{primary.phone || '—'}</span>
+                      <span className="vi-value vi-value--mono">{fv.formatPhoneView(primary.phone) || '—'}</span>
                     </div>
                     <div className="vi-field">
                       <span className="vi-label">Extension</span>
@@ -733,7 +738,7 @@ function DetailsTab({ record, onRecordChange }: {
                     </div>
                     <div className="vi-field">
                       <span className="vi-label">Alternative Telephone Number</span>
-                      <span className="vi-value vi-value--muted">{primary.altPhone || '—'}</span>
+                      <span className="vi-value vi-value--muted">{fv.formatPhoneView(primary.altPhone) || '—'}</span>
                     </div>
                   </div>
                   {secondary && (
@@ -754,7 +759,7 @@ function DetailsTab({ record, onRecordChange }: {
                         </div>
                         <div className="vi-field">
                           <span className="vi-label">Phone</span>
-                          <span className="vi-value vi-value--mono">{secondary.phone || '—'}</span>
+                          <span className="vi-value vi-value--mono">{fv.formatPhoneView(secondary.phone) || '—'}</span>
                         </div>
                       </div>
                     </>
@@ -783,6 +788,13 @@ function DetailsTab({ record, onRecordChange }: {
                       <span className="vi-label">Phone</span>
                       <input className="vi-input" value={contacts[0]?.phone || ''}
                         onChange={e => setContacts(c => c.map((x, i) => i === 0 ? { ...x, phone: e.target.value } : x))} />
+                      {contactErrors['0_phone'] && <span className="vi-producer-error">{contactErrors['0_phone']}</span>}
+                    </div>
+                    <div className="vi-field">
+                      <span className="vi-label">Alternative Telephone Number</span>
+                      <input className="vi-input" value={contacts[0]?.altPhone || ''}
+                        onChange={e => setContacts(c => c.map((x, i) => i === 0 ? { ...x, altPhone: e.target.value } : x))} />
+                      {contactErrors['0_altPhone'] && <span className="vi-producer-error">{contactErrors['0_altPhone']}</span>}
                     </div>
                   </div>
                   {contacts[1] !== undefined && (
@@ -808,6 +820,13 @@ function DetailsTab({ record, onRecordChange }: {
                           <span className="vi-label">Phone</span>
                           <input className="vi-input" value={contacts[1]?.phone || ''}
                             onChange={e => setContacts(c => c.map((x, i) => i === 1 ? { ...x, phone: e.target.value } : x))} />
+                          {contactErrors['1_phone'] && <span className="vi-producer-error">{contactErrors['1_phone']}</span>}
+                        </div>
+                        <div className="vi-field">
+                          <span className="vi-label">Alternative Telephone Number</span>
+                          <input className="vi-input" value={contacts[1]?.altPhone || ''}
+                            onChange={e => setContacts(c => c.map((x, i) => i === 1 ? { ...x, altPhone: e.target.value } : x))} />
+                          {contactErrors['1_altPhone'] && <span className="vi-producer-error">{contactErrors['1_altPhone']}</span>}
                         </div>
                       </div>
                     </>
@@ -1476,6 +1495,7 @@ function ProducerCard({ producer, allProducers, onUpdate }: {
   const [primForm,    setPrimForm]    = useState<any>({});
   const [primErrors,  setPrimErrors]  = useState<Record<string, string>>({});
   const [contactForm, setContactForm] = useState<any>({});
+  const [contactErrors, setContactErrors] = useState<Record<string, string>>({});
   const [addrForm,    setAddrForm]    = useState<any>({});
 
   const [resetting, setResetting] = useState(false);
@@ -1587,6 +1607,10 @@ function ProducerCard({ producer, allProducers, onUpdate }: {
   }
 
   async function saveContactInformation() {
+    const errors: Record<string, string> = {};
+    fv.checkPhonesDiffer(errors, 'phone', 'altPhone', contactForm.phone, contactForm.altPhone);
+    setContactErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     try {
       await mergeAndSave(contactForm);
       setEditContact(false);
@@ -1741,16 +1765,16 @@ function ProducerCard({ producer, allProducers, onUpdate }: {
             </div>
             {!editContact ? (
               <div className="vi-field-grid">
-                <div className="vi-field"><span className="vi-label">Telephone Number</span><span className="vi-value vi-value--mono">{f.phone ? [f.phoneCC, f.phone].filter(Boolean).join(' ') : '-'}</span></div>
+                <div className="vi-field"><span className="vi-label">Telephone Number</span><span className="vi-value vi-value--mono">{fv.formatPhoneView(f.phone) || '-'}</span></div>
                 <div className="vi-field"><span className="vi-label">Extension</span><span className="vi-value">{f.extension || '-'}</span></div>
-                <div className="vi-field"><span className="vi-label">Alternative Telephone Number</span><span className="vi-value vi-value--mono">{f.altPhone ? [f.altPhoneCC, f.altPhone].filter(Boolean).join(' ') : '-'}</span></div>
+                <div className="vi-field"><span className="vi-label">Alternative Telephone Number</span><span className="vi-value vi-value--mono">{fv.formatPhoneView(f.altPhone) || '-'}</span></div>
                 <div className="vi-field"><span className="vi-label">Email ID</span><span className="vi-value vi-value--muted">{f.email || '-'}</span></div>
               </div>
             ) : (
               <div className="vi-field-grid">
-                <div className="vi-field"><span className="vi-label">Telephone Number</span><input className="vi-input" value={contactForm.phone || ''} onChange={e => fc('phone')(e.target.value)} /></div>
+                <div className="vi-field"><span className="vi-label">Telephone Number</span><input className="vi-input" value={contactForm.phone || ''} onChange={e => fc('phone')(e.target.value)} />{contactErrors.phone && <span className="vi-producer-error">{contactErrors.phone}</span>}</div>
                 <div className="vi-field"><span className="vi-label">Extension</span><input className="vi-input" value={contactForm.extension || ''} onChange={e => fc('extension')(e.target.value)} /></div>
-                <div className="vi-field"><span className="vi-label">Alternative Telephone Number</span><input className="vi-input" value={contactForm.altPhone || ''} onChange={e => fc('altPhone')(e.target.value)} /></div>
+                <div className="vi-field"><span className="vi-label">Alternative Telephone Number</span><input className="vi-input" value={contactForm.altPhone || ''} onChange={e => fc('altPhone')(e.target.value)} />{contactErrors.altPhone && <span className="vi-producer-error">{contactErrors.altPhone}</span>}</div>
                 <div className="vi-field"><span className="vi-label">Email ID</span><input className="vi-input" value={contactForm.email || ''} onChange={e => fc('email')(e.target.value)} /></div>
                 <div className="vi-edit-actions" style={{ gridColumn: '1 / -1' }}>
                   <button className="vi-btn-cancel" onClick={() => setEditContact(false)}>Cancel</button>
@@ -1781,8 +1805,8 @@ function ProducerCard({ producer, allProducers, onUpdate }: {
               </div>
             ) : (
               <div className="vi-field-grid">
-                <div className="vi-field" style={{ gridColumn: '1 / -1' }}><span className="vi-label">Address Line 1</span><input className="vi-input" value={addrForm.addrLine1 || ''} onChange={e => fa('addrLine1')(e.target.value)} /></div>
-                <div className="vi-field" style={{ gridColumn: '1 / -1' }}><span className="vi-label">Address Line 2</span><input className="vi-input" value={addrForm.addrLine2 || ''} onChange={e => fa('addrLine2')(e.target.value)} /></div>
+                <div className="vi-field" style={{ gridColumn: '1 / -1' }}><span className="vi-label">Address Line 1</span><input className="vi-input" value={addrForm.addrLine1 || ''} onChange={e => fa('addrLine1')(e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} /></div>
+                <div className="vi-field" style={{ gridColumn: '1 / -1' }}><span className="vi-label">Address Line 2</span><input className="vi-input" value={addrForm.addrLine2 || ''} onChange={e => fa('addrLine2')(e.target.value)} maxLength={fv.ADDRESS_LINE_MAX} /></div>
                 <div className="vi-field"><span className="vi-label">Country</span><input className="vi-input" value={addrForm.addrCountry || ''} onChange={e => fa('addrCountry')(e.target.value)} /></div>
                 <div className="vi-field">
                   <span className="vi-label">State</span>
@@ -1791,8 +1815,8 @@ function ProducerCard({ producer, allProducers, onUpdate }: {
                     {US_STATES.map(s => <option key={s}>{s}</option>)}
                   </select>
                 </div>
-                <div className="vi-field"><span className="vi-label">City</span><input className="vi-input" value={addrForm.city || ''} onChange={e => fa('city')(e.target.value)} /></div>
-                <div className="vi-field"><span className="vi-label">County</span><input className="vi-input" value={addrForm.county || ''} onChange={e => fa('county')(e.target.value)} /></div>
+                <div className="vi-field"><span className="vi-label">City</span><input className="vi-input" value={addrForm.city || ''} onChange={e => fa('city')(e.target.value)} maxLength={fv.CITY_MAX} /></div>
+                <div className="vi-field"><span className="vi-label">County</span><input className="vi-input" value={addrForm.county || ''} onChange={e => fa('county')(e.target.value)} maxLength={fv.COUNTY_MAX} /></div>
                 <div className="vi-field"><span className="vi-label">Zip Code</span><input className="vi-input" value={addrForm.zipCode || ''} onChange={e => fa('zipCode')(e.target.value)} /></div>
                 <div className="vi-field"><span className="vi-label">Latitude</span><input className="vi-input" value={addrForm.latitude || ''} onChange={e => fa('latitude')(e.target.value)} /></div>
                 <div className="vi-field"><span className="vi-label">Longitude</span><input className="vi-input" value={addrForm.longitude || ''} onChange={e => fa('longitude')(e.target.value)} /></div>

@@ -99,6 +99,7 @@ public record PolicyTransactionDto(
 
 public record PolicySummaryDto(
     string PolicyNumber,
+    string? SubmissionId,          // p.quote_number — backing submission opened by View Policy
     string? Status,               // p.policy_status
     string? Lob,                  // insurance_product.product_name
     string? SubProduct,           // insurance_sub_product.sub_product_name
@@ -140,6 +141,7 @@ public record PolicyBillingDto(
     decimal AmountPaid,           // SUM(amount_due) WHERE is_paid
     decimal AmountDue,            // SUM(amount_due) WHERE NOT is_paid
     decimal UnbilledPremium,      // total_premium_with_installment_fee - TotalBilled (floor 0)
+    decimal NextPaymentDueAmount, // SUM(amount_due) for the earliest unpaid due date
     int OverdueDays               // QA IP-15: days since the oldest unpaid instalment fell due; 0 if none
 );
 

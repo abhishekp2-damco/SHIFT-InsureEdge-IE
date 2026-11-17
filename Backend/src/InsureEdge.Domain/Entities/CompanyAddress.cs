@@ -16,4 +16,5 @@ public class CompanyAddress
     public string? Latitude { get; set; }
     public string? Longitude { get; set; }
     public bool IsManual { get; set; }
+    public bool IsSameAsLegal { get; set; }
 }

@@ -91,7 +91,7 @@ export default function ReviewSubmitPage({
           residential_state: f?.residentState || null,
           license: f?.licenseNumber || null,
           allow_full_producer_visibility: f?.fullProducerVisibility ?? false,
-          commission_disburse_email: f?.commEmail || null,
+          commission_disburse_email: f?.disbursementEmail || null,
           last_step: 5,
           address: f?.addrLine1 ? { address_line1: f.addrLine1, address_line2: f.addrLine2 || '', country: f.addrCountry || '',
             state: f.addrState || '', city: f.city || '', county: f.county || '', zip_code: f.zipCode || '',

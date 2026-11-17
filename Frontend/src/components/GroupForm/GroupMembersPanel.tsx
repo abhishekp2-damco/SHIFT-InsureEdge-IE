@@ -1,144 +1,221 @@
-// US-005/US-010/US-011: Member picker — multi-select from active users
-// BR-005: Full-replace semantics; the UI always sends the complete intended list.
-// BR-015: Display all members regardless of profile image.
-import { useState, useMemo } from 'react';
+// Group member picker used by Add Group. Selection is staged in the modal and
+// only committed to the group form when Save is selected.
+import { useEffect, useMemo, useState } from 'react';
 import type { UserSelectDto } from '../../types/User';
+import {
+  filterAndSortMembers, normalizeMemberIds, toggleMember, type MemberSort,
+} from './groupMembers';
 
 interface Props {
   selectedIds: number[];
   users: UserSelectDto[];
   onChange: (ids: number[]) => void;
   readOnly?: boolean;
+  isLoading?: boolean;
+  loadError?: string | null;
 }
 
-export default function GroupMembersPanel({ selectedIds, users, onChange, readOnly }: Props) {
+const SearchIcon = () => (
+  <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="#687386" strokeWidth="1.8">
+    <circle cx="11" cy="11" r="7" />
+    <path d="m20 20-3.5-3.5" />
+  </svg>
+);
+
+function MemberSearch({ value, onChange, placeholder }: {
+  value: string; onChange: (value: string) => void; placeholder: string;
+}) {
+  return (
+    <div style={{ position: 'relative', flex: 1, minWidth: 160 }}>
+      <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', display: 'flex', pointerEvents: 'none' }}>
+        <SearchIcon />
+      </span>
+      <input
+        type="search"
+        aria-label={placeholder}
+        placeholder={placeholder}
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        style={{ width: '100%', height: 28, padding: '5px 9px 5px 31px', borderRadius: 2, fontSize: 11, background: '#f8f9fc' }}
+      />
+    </div>
+  );
+}
+
+function AddMembersModal({ users, selectedIds, onCancel, onSave }: {
+  users: UserSelectDto[];
+  selectedIds: number[];
+  onCancel: () => void;
+  onSave: (ids: number[]) => void;
+}) {
+  const [draftIds, setDraftIds] = useState(() => normalizeMemberIds(selectedIds));
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<MemberSort | ''>('');
+  const visibleUsers = useMemo(
+    () => filterAndSortMembers(users, search, sort || 'alphabetical'),
+    [users, search, sort],
+  );
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return users;
-    const q = search.toLowerCase();
-    return users.filter(u => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
-  }, [users, search]);
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [onCancel]);
 
-  const toggle = (id: number) => {
-    if (readOnly) return;
-    const next = selectedIds.includes(id)
-      ? selectedIds.filter(x => x !== id)
-      : [...selectedIds, id];
-    onChange(next);
-  };
+  return (
+    <div
+      role="presentation"
+      onMouseDown={event => { if (event.currentTarget === event.target) onCancel(); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 600, background: 'rgba(17, 24, 39, 0.34)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-user-to-group-title"
+        style={{
+          width: 510, maxWidth: '100%', height: 'min(730px, calc(100vh - 32px))',
+          display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 7,
+          boxShadow: '0 12px 35px rgba(15, 23, 42, 0.24)', overflow: 'hidden',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 13px 12px', borderBottom: '1px solid #d9dde4' }}>
+          <h2 id="add-user-to-group-title" style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#252a31' }}>Add User To Group</h2>
+          <button type="button" aria-label="Close Add User To Group" onClick={onCancel}
+            style={{ width: 28, height: 28, padding: 0, border: 0, background: 'transparent', fontSize: 27, lineHeight: 1, color: '#252a31' }}>
+            ×
+          </button>
+        </div>
 
-  const selectedUsers = users.filter(u => selectedIds.includes(u.id));
+        <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 13px', borderBottom: '1px solid #d9dde4', fontSize: 11 }}>
+          <strong>Selected Users</strong>
+          <span>Total : &nbsp;{draftIds.length}</span>
+        </div>
+
+        <div style={{ padding: 13, flex: 1, minHeight: 0 }}>
+          <div style={{ height: '100%', border: '1px solid #d9dde4', borderRadius: 5, padding: 11, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+              <MemberSearch value={search} onChange={setSearch} placeholder="Search By Name or Email ID" />
+              <select aria-label="Sort users" value={sort} onChange={event => setSort(event.target.value as MemberSort | '')}
+                style={{ width: 112, height: 28, padding: '0 9px', borderRadius: 3, fontSize: 11, background: '#fff' }}>
+                <option value="">Sort By</option>
+                <option value="alphabetical">Alphabetical</option>
+                <option value="creationDate">Creation Date</option>
+              </select>
+            </div>
+
+            <div style={{ overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(138px, 1fr))', gap: 10, alignContent: 'start' }}>
+              {visibleUsers.map(user => {
+                const selected = draftIds.includes(user.id);
+                return (
+                  <label key={user.id} style={{
+                    minWidth: 0, minHeight: 44, border: `1px solid ${selected ? '#0B5AA0' : '#d9dde4'}`,
+                    background: selected ? '#f1f7fd' : '#f8f9fc', padding: '7px 8px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 8,
+                  }}>
+                    <span aria-hidden="true" style={{
+                      width: 31, height: 31, flex: '0 0 31px', borderRadius: '50%', background: '#dff3ff', color: '#0B5AA0',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600,
+                    }}>{user.initials}</span>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      <span title={user.fullName} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, color: '#252a31' }}>{user.fullName}</span>
+                      <span title={user.email} style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: '#687386' }}>{user.email}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${user.fullName}`}
+                      checked={selected}
+                      onChange={() => setDraftIds(current => toggleMember(current, user.id))}
+                      style={{ width: 16, height: 16, flex: '0 0 auto' }}
+                    />
+                  </label>
+                );
+              })}
+              {visibleUsers.length === 0 && (
+                <div style={{ gridColumn: '1 / -1', padding: 28, textAlign: 'center', color: '#687386', fontSize: 11 }}>
+                  No Data Available
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, padding: '8px 13px', borderTop: '1px solid #d9dde4' }}>
+          <button type="button" className="btn-secondary" onClick={onCancel} style={{ minWidth: 106 }}>Cancel</button>
+          <button type="button" className="btn-primary" onClick={() => onSave(normalizeMemberIds(draftIds))} style={{ minWidth: 106 }}>Save</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function GroupMembersPanel({
+  selectedIds, users, onChange, readOnly, isLoading = false, loadError = null,
+}: Props) {
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const selectedUsers = useMemo(
+    () => filterAndSortMembers(users.filter(user => selectedIds.includes(user.id)), search, 'alphabetical'),
+    [users, selectedIds, search],
+  );
 
   return (
     <div className="card" style={{ padding: '12px 13px', border: '1px solid #d9dde4', borderRadius: 6, boxShadow: 'none' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>
-          {selectedIds.length} Group Members
-        </h3>
+      <h3 style={{ margin: '0 0 7px', fontSize: 14, fontWeight: 600 }}>
+        {selectedIds.length} Group Members
+      </h3>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <MemberSearch value={search} onChange={setSearch} placeholder="Enter member name you are looking for" />
+        {!readOnly && (
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={isLoading || !!loadError}
+            onClick={() => setModalOpen(true)}
+            style={{ height: 28, minWidth: 106, padding: '0 12px', color: '#0B5AA0', borderColor: '#0B5AA0' }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 17, marginRight: 7, lineHeight: 0 }}>+</span>
+            Add User
+          </button>
+        )}
       </div>
 
-      {/* Selected members as chips */}
-      {selectedUsers.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-          {selectedUsers.map(u => (
-            <span key={u.id} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--color-primary-light)', color: 'var(--color-primary)',
-              borderRadius: 99, padding: '4px 10px', fontSize: 13, fontWeight: 500,
-            }}>
-              <span style={{
-                background: 'var(--color-primary)', color: '#fff', borderRadius: '50%',
-                width: 20, height: 20, display: 'inline-flex', alignItems: 'center',
-                justifyContent: 'center', fontSize: 11, fontWeight: 700,
-              }}>
-                {u.initials}
-              </span>
-              {u.fullName}
-              {!readOnly && (
-                <button
-                  onClick={() => toggle(u.id)}
-                  style={{ background: 'none', padding: 0, color: 'var(--color-primary)',
-                    fontSize: 14, lineHeight: 1, width: 'auto' }}
-                  type="button"
-                  title={`Remove ${u.fullName}`}
-                >
-                  ×
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* QA UGM-11 */}
-      {selectedUsers.length === 0 && !search.trim() && (
-        <div style={{ padding: '14px 0', textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>
-          No Data Available
-        </div>
-      )}
-
-      {!readOnly && (
-        <>
-          <div style={{ position: 'relative', marginBottom: search.trim() ? 8 : 0 }}>
-            <svg
-              aria-hidden="true"
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#687386"
-              strokeWidth="1.8"
-              style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-            <input
-              type="text"
-              placeholder="Enter member name you are looking for"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ height: 27, padding: '5px 9px 5px 31px', borderRadius: 2, fontSize: 11, background: '#f8f9fc' }}
-            />
+      <div style={{ marginTop: 12, minHeight: 72 }}>
+        {isLoading && <div style={{ padding: 16, textAlign: 'center', color: '#687386', fontSize: 11 }}>Loading users...</div>}
+        {!isLoading && loadError && <div role="alert" style={{ padding: 16, textAlign: 'center', color: 'var(--color-danger)', fontSize: 11 }}>{loadError}</div>}
+        {!isLoading && !loadError && selectedUsers.length === 0 && (
+          <div style={{ padding: 16, textAlign: 'center', color: '#252a31', fontSize: 11 }}>
+            {selectedIds.length > 0 && search.trim() ? 'No Data Available' : 'No User Added'}
           </div>
-          {search.trim() && <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--color-gray-200)', borderRadius: 2 }}>
-            {filtered.length === 0 && (
-              <div style={{ padding: 16, color: 'var(--color-gray-500)', textAlign: 'center' }}>
-                No Data Available
+        )}
+        {!isLoading && !loadError && selectedUsers.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {selectedUsers.map(user => (
+              <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 260, border: '1px solid #d9dde4', background: '#f8f9fc', padding: '7px 9px' }}>
+                <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', background: '#dff3ff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>{user.initials}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{user.fullName}</span>
+                  <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: '#687386' }}>{user.email}</span>
+                </span>
               </div>
-            )}
-            {filtered.map(u => {
-              const selected = selectedIds.includes(u.id);
-              return (
-                <div
-                  key={u.id}
-                  onClick={() => toggle(u.id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '8px 12px', cursor: 'pointer',
-                    background: selected ? 'var(--color-primary-light)' : '#fff',
-                    borderBottom: '1px solid var(--color-gray-100)',
-                  }}
-                >
-                  <input type="checkbox" checked={selected} readOnly style={{ width: 15, height: 15 }} />
-                  <div style={{
-                    background: selected ? 'var(--color-primary)' : 'var(--color-gray-300)',
-                    color: '#fff', borderRadius: '50%', width: 28, height: 28,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 11, fontWeight: 700, flexShrink: 0,
-                  }}>
-                    {u.initials}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 500 }}>{u.fullName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--color-gray-500)' }}>{u.email}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>}
-        </>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modalOpen && (
+        <AddMembersModal
+          users={users}
+          selectedIds={selectedIds}
+          onCancel={() => setModalOpen(false)}
+          onSave={ids => { onChange(ids); setModalOpen(false); }}
+        />
       )}
     </div>
   );

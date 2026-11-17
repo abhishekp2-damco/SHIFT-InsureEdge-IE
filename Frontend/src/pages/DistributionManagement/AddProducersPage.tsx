@@ -158,6 +158,7 @@ export function getProducerErrors(form: ProducerForm): Record<string, string> {
   fv.checkPhone(errors, 'phone', form.phone, 'Telephone Number', true);
   fv.checkExtension(errors, 'ext', form.ext);
   fv.checkPhone(errors, 'altPhone', form.altPhone, 'Alternative Telephone Number');
+  fv.checkPhonesDiffer(errors, 'phone', 'altPhone', form.phone, form.altPhone);
   fv.checkEmail(errors, 'email', form.email, 'Email ID', true);
   return errors;
 }

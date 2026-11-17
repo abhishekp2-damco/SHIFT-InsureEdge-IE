@@ -87,7 +87,18 @@ public class SubmissionRepository : ISubmissionRepository
             }
             return await BackfillSubmissionFromPolicyAsync(clientId, id, issued.Id);
         }
-        if (row != null) return Map(row);
+        if (row != null)
+        {
+            var dto = Map(row);
+            var approvalStatus = await _db.Policies
+                .Where(p => p.ClientId == clientId && (p.QuoteNumber == id || p.PolicyNumber == id))
+                .OrderByDescending(p => p.Id)
+                .Select(p => p.ApprovalStatus)
+                .FirstOrDefaultAsync();
+            return string.IsNullOrWhiteSpace(approvalStatus)
+                ? dto
+                : dto with { DataJson = ApplyQuoteApprovalStatus(dto.DataJson, approvalStatus) };
+        }
 
         // Legacy/seeded policies created directly in the `policy` table (not through the
         // wizard's CreateAsync flow) have no matching Submissions row, so the read-only
@@ -641,7 +652,7 @@ public class SubmissionRepository : ISubmissionRepository
         // branch), otherwise GenerateNewBusinessHBISPolicyNumber.
         var policyNumber = policy.PolicyNumber != policy.QuoteNumber && !string.IsNullOrWhiteSpace(policy.PolicyNumber)
             ? policy.PolicyNumber
-            : await GenerateNewBusinessPolicyNumberAsync(clientId);
+            : await GenerateNewBusinessPolicyNumberAsync(clientId, policy.IntermediaryId);
 
         // Quote → policy conversion (CreatePolicy_CS2 / UpdatePolicyType):
         // PolicyType 'POLICY' moves the record from the NB Quotes register to the Policies
@@ -835,9 +846,28 @@ public class SubmissionRepository : ISubmissionRepository
                         && (p.PolicyStage == "EndorsementIndividual" || p.PolicyStage == "EndorsementBusiness"))
             ?? throw new KeyNotFoundException("Submission not found.");
 
+        var endorsementTransactionType = policy.PolicyStage == "EndorsementBusiness"
+            ? "EndorsementBusiness"
+            : "EndorsementIndividual";
+
         if (policy.PolicyStatus == "Active")
+        {
+            // Repair legacy issued endorsements that pre-date transaction creation, while
+            // leaving an existing transaction untouched on an idempotent retry.
+            var existingTransaction = await _db.PolicyTransactions.AnyAsync(t =>
+                t.ClientId == clientId
+                && t.MainPolicyId == policy.Id
+                && t.TransactionType == endorsementTransactionType);
+            if (!existingTransaction)
+            {
+                AddPolicyEvent(clientId, userId, policy, endorsementTransactionType,
+                    $"Endorsement issued for policy {policy.PolicyNumber}. Policy Record updated.");
+                await _db.SaveChangesAsync();
+                await tx.CommitAsync();
+            }
             return new IssuePolicyResponse(false, policy.PolicyNumber, policy.PolicyStatus,
                 await ScreenCodeAsync(clientId, policy), "Endorsement has already been issued.");
+        }
 
         var priorPolicyId = policy.Extended?.PriorPolicyId
             ?? throw new InvalidOperationException("This endorsement has no prior policy on record — cannot issue.");
@@ -892,7 +922,7 @@ public class SubmissionRepository : ISubmissionRepository
         await UpsertCommissionAsync(clientId, userId, policy, premium, commissionRow, commissionPct);
 
         var screenCode = isBusiness ? "POLICYBUSINESS" : "POLICYINDIVIDUAL";
-        AddPolicyEvent(clientId, userId, policy, isBusiness ? "EndorsementBusiness" : "EndorsementIndividual",
+        await CompleteEndorsementPolicyEventAsync(clientId, userId, policy, endorsementTransactionType,
             $"Endorsement issued for policy {policy.PolicyNumber}. Policy Record updated.");
         submission.Status = "Active";
         submission.Data = ApplyIssuedIdentity(submission.Data, policy.PolicyNumber, screenCode);
@@ -911,30 +941,36 @@ public class SubmissionRepository : ISubmissionRepository
             $"Endorsement for policy {policy.PolicyNumber} has been issued successfully.");
     }
 
-    // GenerateNewBusinessHBISPolicyNumber: take the latest issued HB policy number,
-    // split on '-' and increment the trailing sequence; seed HB-{year}-000001 when none exist.
-    private async Task<string> GenerateNewBusinessPolicyNumberAsync(long clientId)
+    // GenerateNewBusinessHBISPolicyNumber: OutSystems uses
+    // CCC-IIIII-SSSSSSS-00 (client, intermediary, policy sequence, base-policy suffix).
+    private async Task<string> GenerateNewBusinessPolicyNumberAsync(long clientId, long? intermediaryId)
     {
-        var year = DateTime.UtcNow.Year;
-        var prefix = $"HB-{year}-";
-        var latest = await _db.Policies
-            .Where(p => p.ClientId == clientId && p.PolicyType == "POLICY" && p.PolicyNumber.StartsWith(prefix))
-            .OrderByDescending(p => p.PolicyNumber)
+        if (!intermediaryId.HasValue)
+            throw new InvalidOperationException("An intermediary is required before a policy number can be generated.");
+
+        // Issuance already runs inside a transaction. A per-client advisory lock prevents two
+        // simultaneous issues from allocating the same next sequence.
+        await _db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock({7_300_000_000L + clientId})");
+
+        var existingNumbers = await _db.Policies
+            .Where(p => p.ClientId == clientId)
             .Select(p => p.PolicyNumber)
-            .FirstOrDefaultAsync();
+            .Distinct()
+            .ToListAsync();
 
         var seq = 0;
-        if (!string.IsNullOrEmpty(latest))
+        foreach (var existing in existingNumbers)
         {
-            var parts = latest.Split('-');
-            if (parts.Length > 0 && int.TryParse(parts[^1], out var parsed)) seq = parsed;
+            if (PolicyRules.TryGetPolicySequence(existing, out var parsed))
+                seq = Math.Max(seq, parsed);
         }
 
         string candidate;
         do
         {
             seq++;
-            candidate = $"{prefix}{seq.ToString().PadLeft(6, '0')}";
+            candidate = PolicyRules.FormatPolicyNumber(clientId, intermediaryId.Value, seq);
         } while (await _db.Policies.AnyAsync(p => p.ClientId == clientId && p.PolicyNumber == candidate));
         return candidate;
     }
@@ -1182,6 +1218,26 @@ public class SubmissionRepository : ISubmissionRepository
         }
     }
 
+    // Approval is owned by the relational policy row and may be updated asynchronously by
+    // underwriting after the draft JSON was saved. Project it into the response without
+    // rewriting the stored draft so the wizard can unlock post-approval steps immediately.
+    private static string ApplyQuoteApprovalStatus(string dataJson, string approvalStatus)
+    {
+        try
+        {
+            var root = JsonNode.Parse(dataJson) as JsonObject;
+            if (root == null) return dataJson;
+            var form = root["form"] as JsonObject ?? new JsonObject();
+            form["approvalStatus"] = approvalStatus;
+            root["form"] = form;
+            return root.ToJsonString();
+        }
+        catch (JsonException)
+        {
+            return dataJson;
+        }
+    }
+
     // ─── Policy sync (BR-SUB-004) ─────────────────────────────────────────────
 
     private async Task EnsurePolicyForSubmissionAsync(long clientId, long userId, string id, string dataJson)
@@ -1388,6 +1444,55 @@ public class SubmissionRepository : ISubmissionRepository
                 CreatedOn = now,
             },
         });
+    }
+
+    private async Task CompleteEndorsementPolicyEventAsync(
+        long clientId,
+        long userId,
+        Policy policy,
+        string transactionType,
+        string description)
+    {
+        var now = DateTime.UtcNow;
+        var transaction = await _db.PolicyTransactions.FirstOrDefaultAsync(t =>
+            t.ClientId == clientId
+            && t.MainPolicyId == policy.Id
+            && t.TransactionType == transactionType);
+
+        if (transaction == null)
+        {
+            AddPolicyEvent(clientId, userId, policy, transactionType, description);
+            return;
+        }
+
+        transaction.PolicyNumber = policy.PolicyNumber;
+        transaction.EffectiveDate = policy.EffectiveDate;
+        transaction.ExpirationDate = policy.ExpiryDate;
+        transaction.TransactionEffectiveDate = policy.Extended?.EndorsementEffectiveDate
+            ?? DateOnly.FromDateTime(now);
+        transaction.Status = policy.PolicyStatus;
+        transaction.RedirectionPolicyId = policy.Id;
+        transaction.IsShowInTimeline = true;
+        transaction.CreatedBy = userId;
+        transaction.CreatedOn = now;
+
+        var hasAudit = await _db.Audits.AnyAsync(a =>
+            a.ClientId == clientId && a.TransactionId == transaction.Id);
+        if (!hasAudit)
+        {
+            _db.Audits.Add(new Audit
+            {
+                ClientId = clientId,
+                ActivityType = "Update",
+                RecordId = policy.Id,
+                ActivityDescription = description,
+                Module = "Policy",
+                CreatedBy = userId,
+                CreatedDateTime = now,
+                TableName = "Policy",
+                Transaction = transaction,
+            });
+        }
     }
 
     private async Task SyncPolicyFromSubmissionAsync(long clientId, long userId, string id, string dataJson, string status)

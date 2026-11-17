@@ -52,7 +52,14 @@ public class ClientsController(ClientService clients, ICurrentTenantService tena
     [HttpPut("me/address")]
     public async Task<IActionResult> SaveAddress([FromBody] SaveAddressRequest req)
     {
+        req = ClientValidator.NormalizeAddress(req);
         if (ClientValidator.ValidateAddress(req) is { } error) return BadRequest(new { error });
+        if (req.IsSameAsLegal)
+        {
+            var detail = await clients.GetDetailAsync();
+            if (ClientValidator.ValidateSameAsLegal(req, detail?.LegalAddress) is { } sameAsError)
+                return BadRequest(new { error = sameAsError });
+        }
         await clients.SaveAddressAsync(req);
         return NoContent();
     }
@@ -96,6 +103,11 @@ public class ClientsController(ClientService clients, ICurrentTenantService tena
     [HttpPost("me/companies")]
     public async Task<IActionResult> SaveCompany([FromBody] SaveCompanyRequest req)
     {
+        req = req with
+        {
+            LegalAddress = req.LegalAddress is null ? null : ClientValidator.NormalizeAddress(req.LegalAddress),
+            MailingAddress = req.MailingAddress is null ? null : ClientValidator.NormalizeAddress(req.MailingAddress)
+        };
         if (ClientValidator.ValidateCompany(req) is { } error)
             return BadRequest(new { error });
         var id = await clients.SaveCompanyAsync(req);
@@ -114,7 +126,15 @@ public class ClientsController(ClientService clients, ICurrentTenantService tena
     [HttpPut("me/companies/{companyId:long}/address")]
     public async Task<IActionResult> SaveCompanyAddress(long companyId, [FromBody] SaveAddressRequest req)
     {
+        req = ClientValidator.NormalizeAddress(req);
         if (ClientValidator.ValidateAddress(req) is { } error) return BadRequest(new { error });
+        if (req.IsSameAsLegal)
+        {
+            var detail = await clients.GetDetailAsync();
+            var legal = detail?.Companies.FirstOrDefault(company => company.Id == companyId)?.LegalAddress;
+            if (ClientValidator.ValidateSameAsLegal(req, legal) is { } sameAsError)
+                return BadRequest(new { error = sameAsError });
+        }
         await clients.SaveCompanyAddressAsync(companyId, req);
         return NoContent();
     }
