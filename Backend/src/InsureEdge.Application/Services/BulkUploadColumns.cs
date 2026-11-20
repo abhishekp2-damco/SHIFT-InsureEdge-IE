@@ -9,6 +9,8 @@ namespace InsureEdge.Application.Services;
 
 public static class BulkUploadColumns
 {
+    public const string ImportSheetName = "Import Data";
+
     // Data rows start on row 4 of the worksheet (1-based) — 3 header rows precede them.
     public const int DataStartRow = 4;
 
@@ -157,11 +159,27 @@ public static class BulkUploadColumns
     public const string PhysicalDamageDeductibleList = "2500,5000,10000,25000";
     public const string LiabilityCoverageList = "100000,300000,500000";
     public const string ExcessBlanketPlList = "No Coverage,500000";
-    public const string SinkholeList = "None,1000,2500";
+    // The approved workbook, quote wizard, and rating engine all model this as
+    // a Yes/No choice. Keep this alias so the field-specific validation remains
+    // readable without drifting from the shared list again.
+    public const string SinkholeList = YesNoList;
     public const string EarthquakeList = "None,25000,50000,100000";
     public const string FloodList = "None,10000,25000,50000";
     public const string WindWildfireList = "Included,Non-Transferred";
     public const string BuildingTypeList = "No basement/enclosure,With basement,With enclosure,Elevated on crawlspace,Non-elevated with subgrade crawlspace,Manufactured";
     public const string BuildingDescriptionList = "1 floor,More than 1 floor no basement,More than 1 floor with basement";
     public const string StateList = "Alabama,Alaska,Arizona,Arkansas,California,Colorado,Connecticut,Delaware,Florida,Georgia,Hawaii,Idaho,Illinois,Indiana,Iowa,Kansas,Kentucky,Louisiana,Maine,Maryland,Massachusetts,Michigan,Minnesota,Mississippi,Missouri,Montana,Nebraska,Nevada,New Hampshire,New Jersey,New Mexico,New York,North Carolina,North Dakota,Ohio,Oklahoma,Oregon,Pennsylvania,Rhode Island,South Carolina,South Dakota,Tennessee,Texas,Utah,Vermont,Virginia,Washington,West Virginia,Wisconsin,Wyoming";
+
+    public static string ExcelColumnName(int zeroBasedColumn)
+    {
+        var value = zeroBasedColumn + 1;
+        var result = string.Empty;
+        while (value > 0)
+        {
+            value--;
+            result = (char)('A' + value % 26) + result;
+            value /= 26;
+        }
+        return result;
+    }
 }

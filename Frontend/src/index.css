@@ -2259,7 +2259,7 @@ span.ap-th-lbl { cursor: default; }
   font-weight: 500;
   color: #374151;
   cursor: pointer;
-  align-self: flex-start;
+  align-self: center;
   transition: background 0.12s, border-color 0.12s;
 }
 .bu-tpl-btn:hover { background: #f9fafb; border-color: #9ca3af; }

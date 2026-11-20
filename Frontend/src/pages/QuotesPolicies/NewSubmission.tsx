@@ -389,8 +389,9 @@ function todayFormatted(): string {
 
 function addOneYear(dateStr: string): string {
   if (!dateStr) return '';
-  // Dates are MM-DD-YYYY (the old code read them as DD-MM-YYYY).
-  const [month, day, year] = dateStr.split('-');
+  // The UI uses MM-DD-YYYY, while older bulk-upload records were persisted as
+  // MM/DD/YYYY. Accept both so existing uploaded quotes can derive expiration.
+  const [month, day, year] = dateStr.trim().split(/[/-]/);
   if (!day || !month || !year) return '';
   const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
   d.setFullYear(d.getFullYear() + 1);
@@ -482,7 +483,7 @@ function NewSubmissionLanding({
                 {err('brokerageFirm')}
               </Field>
               <Field label="Producer Name" required>
-                <FSelect value={form.producerName} onChange={handleProducerChange} options={producerNames} disabled={!form.brokerageFirm || producerNames.length === 0} />
+                <FSelect value={form.producerName} onChange={handleProducerChange} options={producerNames} disabled={Boolean(isProducer) || !form.brokerageFirm || producerNames.length === 0} />
                 {err('producerName')}
               </Field>
             </div>
@@ -1796,6 +1797,10 @@ function StepPolicyInfo({
   const INSURED_PAGE_SIZE = 10;
   const ORG_PAGE_SIZE = 10;
   const locked = form.lockSubmission;
+  // Bulk-uploaded producer quotes are read-only on Policy Information except
+  // for Effective Date. Keep this condition narrow so other quote flows retain
+  // their existing editability rules.
+  const isProducerBulkUpload = isLoggedInUserProducer && form.isBulkUploaded;
   const showAdditionalNamedInsured = form.policyInsuranceType === '1' || form.policyInsuranceType === '2';
   const addVisible =
     form.screenCode === 'ENDORSEMENTINDIVIDUAL' ||
@@ -1804,8 +1809,8 @@ function StepPolicyInfo({
       : form.isHBProducer && form.isQuickQuote
         ? true
         : String(form.hexCatStatus).toUpperCase() === 'APPROVED';
-  const addDisabled = locked;
-  const canUseRowActions = addVisible && !locked;
+  const addDisabled = locked || isProducerBulkUpload;
+  const canUseRowActions = addVisible && !locked && !isProducerBulkUpload;
   const canEditManualRow = (item: { isManual?: boolean }) => item.isManual === true && canUseRowActions;
 
   // Renewal quote field disable logic: for non-producers, most policy fields are read-only
@@ -1841,6 +1846,15 @@ function StepPolicyInfo({
     set('producerId', selected?.id ?? null);
     if (selected?.id) setErrors(e => ({ ...e, producerId: '' }));
   }
+
+  function handleEffectiveDateChange(value: string) {
+    set('effectiveDate', value);
+    // Expiration Date is read-only for producer bulk uploads, so keep it in
+    // sync with the only editable date instead of leaving a stale/blank value.
+    if (isProducerBulkUpload) set('expirationDate', addOneYear(value));
+    if (value) setErrors(e => ({ ...e, effectiveDate: '' }));
+  }
+
   function handleCountryChange(value: string) {
     const nextStates = STATE_OPTIONS_BY_COUNTRY[value] ?? [];
     set('country', value);
@@ -1928,28 +1942,29 @@ function StepPolicyInfo({
   const isEffectiveDateEditable = form.isHBProducer && !form.lockSubmission && String(form.hexCatStatus).toUpperCase() !== 'APPROVED';
   // Policy Term — mandatory for every role except a producer; editable only for a producer (not locked).
   const isPolicyTermRequired = !form.isHBProducer;
-  const isPolicyTermEditable = form.isHBProducer && !form.lockSubmission;
+  const isPolicyTermEditable = !isProducerBulkUpload && form.isHBProducer && !form.lockSubmission;
   // Expiration Date — mandatory unless (producer AND not a quick quote); editable only for
   // a producer, on a Short-Term policy, not locked.
   const isExpirationDateRequired = !form.isHBProducer || form.isQuickQuote;
-  const isExpirationDateEditable = form.policyTerm === 'Short-Term' && !form.lockSubmission && form.isHBProducer;
+  const isExpirationDateEditable = !isProducerBulkUpload && form.policyTerm === 'Short-Term' && !form.lockSubmission && form.isHBProducer;
   // Type of Primary Insured — mandatory for every role except a producer; editable when
   // (quick quote, OR is a producer) and not locked — flipped to Producer-only editability,
   // same convention as Effective Date/Policy Term/Expiration Date above.
   const isPrimaryInsuredTypeRequired = !form.isHBProducer;
-  const isPrimaryInsuredTypeEditable = (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission;
+  const isPrimaryInsuredTypeEditable = !isProducerBulkUpload && (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission;
   // Brokerage Firm / Producer Name — same editability shape as Type of Primary Insured.
   // QP-15: a producer's Brokerage Firm is their own Intermediary, so it's locked for them.
-  const isBrokerageFirmEditable = (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission && !isLoggedInUserProducer;
-  const isProducerNameEditable = (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission;
+  const isBrokerageFirmEditable = !isProducerBulkUpload && (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission && !isLoggedInUserProducer;
+  // A Producer login is always tied to its own producer record and cannot switch it.
+  const isProducerNameEditable = !isProducerBulkUpload && (form.isQuickQuote || form.isHBProducer) && !form.lockSubmission && !isLoggedInUserProducer;
 
   // Primary Named Insured / Organization fields (OutSystems parity).
   const isEnableForRenewal = form.screenCode === 'RENEWALINDIVIDUAL' || form.screenCode === 'RENEWALBUSINESS';
   const hexCatApproved = String(form.hexCatStatus).toUpperCase() === 'APPROVED';
   // First/Middle/Last Name, Organisation Name, Doing Business As all share this shape —
   // same "producer-only editable" flip applied to Type of Primary Insured/Brokerage/Producer.
-  const nameFieldsEditable = isEnableForRenewal ||
-    ((form.isQuickQuote || form.isHBProducer) && !form.lockSubmission && !hexCatApproved);
+  const nameFieldsEditable = !isProducerBulkUpload && (isEnableForRenewal ||
+    ((form.isQuickQuote || form.isHBProducer) && !form.lockSubmission && !hexCatApproved));
   const isFirstNameRequired = !form.isHBProducer || form.isQuickQuote;
   const isLastNameRequired = !form.isHBProducer || form.isQuickQuote;
   const isOrganisationNameRequired = !form.isHBProducer || form.isQuickQuote;
@@ -1957,18 +1972,18 @@ function StepPolicyInfo({
   // on isHBProducer rather than "not producer", so there's nothing to invert).
   const isAge65NotEditable =
     (!isEnableForRenewal && ((form.isQuickQuote ? false : form.isHBProducer) || form.lockSubmission)) || hexCatApproved;
-  const isAge65Editable = !isAge65NotEditable;
+  const isAge65Editable = !isProducerBulkUpload && !isAge65NotEditable;
 
   // Mailing Address — these branch explicitly per role in the source (If(isHBProducer, A, B)),
   // so there's no simple negation to flip; implemented literally.
   const manualEntryRoleBranch = form.isHBProducer ? (form.isQuickQuote || hexCatApproved) : !hexCatApproved;
-  const isGoogleAddressSearchEditable = !isManualAddress && (form.isHBProducer ? form.isQuickQuote : hexCatApproved) && !form.lockSubmission;
-  const isEnterAddressManuallyEditable = manualEntryRoleBranch && !form.lockSubmission;
+  const isGoogleAddressSearchEditable = !isProducerBulkUpload && !isManualAddress && (form.isHBProducer ? form.isQuickQuote : hexCatApproved) && !form.lockSubmission;
+  const isEnterAddressManuallyEditable = !isProducerBulkUpload && manualEntryRoleBranch && !form.lockSubmission;
   const isAddressLine1Required = !form.isHBProducer;
-  const isManualAddressFieldsEditable = isManualAddress && manualEntryRoleBranch && !form.lockSubmission;
+  const isManualAddressFieldsEditable = !isProducerBulkUpload && isManualAddress && manualEntryRoleBranch && !form.lockSubmission;
 
   // Contact Information (Telephone/Extension/Alt Phone/Email) — literal, same shape family.
-  const isContactInfoEditable = (form.isHBProducer ? (form.isQuickQuote || hexCatApproved) : hexCatApproved) && !form.lockSubmission;
+  const isContactInfoEditable = !isProducerBulkUpload && (form.isHBProducer ? (form.isQuickQuote || hexCatApproved) : hexCatApproved) && !form.lockSubmission;
 
   return (
     <div>
@@ -1978,7 +1993,7 @@ function StepPolicyInfo({
             <div className="wizard-section-subtitle">Policy Details</div>
             <div className="form-grid">
               <div>
-                <Field label="Effective Date" required><DatePicker value={form.effectiveDate} onChange={v => { set('effectiveDate', v); if (v) setErrors(e => ({ ...e, effectiveDate: '' })); }} hasError={Boolean(errors.effectiveDate)} disabled={!isEffectiveDateEditable} /></Field>
+                <Field label="Effective Date" required><DatePicker value={form.effectiveDate} onChange={handleEffectiveDateChange} hasError={Boolean(errors.effectiveDate)} disabled={!isEffectiveDateEditable} /></Field>
                 {errors.effectiveDate && <div className="field-error">{errors.effectiveDate}</div>}
               </div>
               <div>
@@ -2061,7 +2076,7 @@ function StepPolicyInfo({
                 }} disabled={!isGoogleAddressSearchEditable} clearToken={addressSearchClearToken} />
               </div>
               <label className="check-row source-manual-check">
-                <input type="checkbox" checked={isManualAddress} onChange={e => handleManualAddressToggle(e.target.checked)} disabled={!isEnterAddressManuallyEditable} /> Enter Address Manually
+                <input type="checkbox" checked={isProducerBulkUpload || isManualAddress} onChange={e => handleManualAddressToggle(e.target.checked)} disabled={!isEnterAddressManuallyEditable} /> Enter Address Manually
               </label>
               <div className="source-address-grid source-address-two">
                 <div>
@@ -2352,11 +2367,12 @@ function StepPolicyInfo({
 }
 
 // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Step 1: Location ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-function StepLocation({ form, set, locations, setLocations }: {
+function StepLocation({ form, set, locations, setLocations, isLoggedInUserProducer }: {
   form: FormState;
   set: (k: keyof FormState, v: any) => void;
   locations: LocationItem[];
   setLocations: React.Dispatch<React.SetStateAction<LocationItem[]>>;
+  isLoggedInUserProducer: boolean;
 }) {
   const [showAdd, setShowAdd] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
@@ -2371,7 +2387,8 @@ function StepLocation({ form, set, locations, setLocations }: {
   // mailing address and add a manual risk location. Previously Producer quotes
   // were incorrectly blocked unless they were also marked as Quick Quotes.
   const newBusinessLocationEntryEnabled = getFlowKind(form) === 'newBusiness';
-  const checkboxEnabled = existingCheckboxRule || newBusinessLocationEntryEnabled;
+  const isProducerBulkUpload = isLoggedInUserProducer && form.isBulkUploaded;
+  const checkboxEnabled = !isProducerBulkUpload && (existingCheckboxRule || newBusinessLocationEntryEnabled);
   const manualLocationMode = !booleanValue(form.locationSameAsMailing);
   const canEditLocation = checkboxEnabled || manualLocationMode;
   // Once "same as mailing" is unchecked, manual entry is the intended path.
@@ -5700,7 +5717,7 @@ export default function NewSubmission() {
     // Producer permissions must not depend on the general intermediary list.
     loadMyProducerInfo();
     return () => { cancelled = true; };
-  }, [intermediaryOptions]);
+  }, [intermediaryOptions, submissionLoaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5780,7 +5797,7 @@ export default function NewSubmission() {
     if (form.effectiveDate && !form.expirationDate) {
       setForm(prev => ({ ...prev, expirationDate: addOneYear(form.effectiveDate) }));
     }
-  }, [form.effectiveDate]);
+  }, [form.effectiveDate, form.expirationDate, form.isBulkUploaded, isLoggedInUserProducer, submissionLoaded]);
 
   useEffect(() => {
     let cancelled = false;
@@ -6363,13 +6380,6 @@ export default function NewSubmission() {
 
   return (
     <div className="qp-scope" style={{ display: 'flex', flexDirection: 'row', height: '100%' }}>
-      {saveState === 'saved' && (
-        <div className="bu-toast" role="status" aria-live="polite">
-          <span className="bu-toast__icon">&#10003;</span>
-          <span className="bu-toast__text">Saved Successfully</span>
-          <button className="bu-toast__close" type="button" aria-label="Close saved message" onClick={() => setSaveState('idle')}>&#215;</button>
-        </div>
-      )}
       <WizardSidebar submissionId={recordId} status={currentStatus} currentStep={step} onStepClick={goToStep} screenCode={scenarioForm.screenCode} recordLabel={flowCopy.recordLabel} maxNavigableStep={awaitingManualQuoteApproval ? 3 : undefined} />
 
       <div className="wizard-page" style={{ flex: 1 }}>
@@ -6389,7 +6399,7 @@ export default function NewSubmission() {
 
         <div className="wizard-content">
           {step === 0 && <StepPolicyInfo form={scenarioForm} set={set} additionalInsureds={additionalInsureds} setAdditionalInsureds={setAdditionalInsureds} additionalOrgs={additionalOrgs} setAdditionalOrgs={setAdditionalOrgs} intermediaryOptions={intermediaryOptions} producerOptions={producerOptions} isLoggedInUserProducer={isLoggedInUserProducer} isRenewalQuote={isRenewalQuote} errors={step0Errors} setErrors={setStep0Errors} />}
-          {step === 1 && <StepLocation form={scenarioForm} set={set} locations={locations} setLocations={setLocations} />}
+          {step === 1 && <StepLocation form={scenarioForm} set={set} locations={locations} setLocations={setLocations} isLoggedInUserProducer={isLoggedInUserProducer} />}
           {step === 2 && <StepRiskInfo form={scenarioForm} set={set} mortgages={mortgages} setMortgages={setMortgages} isLoggedInUserProducer={isLoggedInUserProducer} isRenewalQuote={isRenewalQuote} />}
           {step === 3 && <StepLimits form={scenarioForm} set={set} isLoggedInUserProducer={isLoggedInUserProducer} showApprovalNote={awaitingManualQuoteApproval} errors={step3Errors} />}
           {step === 4 && <StepPlans form={scenarioForm} set={set} />}

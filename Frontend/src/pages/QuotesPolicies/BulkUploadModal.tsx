@@ -2,9 +2,8 @@
 // Bulk Upload modal for Quotes & Policies (New Business Quotes) — adapted from
 // Frontend/src/pages/DistributionManagement/BulkUploadModal.tsx, reusing the same
 // `.bu-*` CSS classes (drag-drop zone + history table), wired to the new
-// /bulk-upload endpoints (module=QUOTES_POLICIES) and a submission-focused
-// template (InsuredType/Name/EffectiveDate/LOB/SubProduct/Country/State/
-// BrokerageFirm/ProducerName), instead of the Intermediary/Producer template.
+// /bulk-upload endpoints (module=QUOTES_POLICIES) and the approved E&S
+// Homeowners workbook, instead of the Intermediary/Producer template.
 import React, { useState, useRef, useEffect } from 'react';
 import { bulkUploadApi as api } from '../../api/bulkUpload';
 
@@ -50,6 +49,9 @@ function formatDate(d: Date): string {
 function validateFile(file: File): string | null {
   if (!file.name.toLowerCase().endsWith('.xlsx')) {
     return 'Only Excel (.xlsx) files are supported.';
+  }
+  if (file.size < 10 * 1024) {
+    return 'File size must be at least 10 KB.';
   }
   if (file.size > 10 * 1024 * 1024) {
     return 'File size must not exceed 10 MB.';
@@ -133,11 +135,12 @@ export default function BulkUploadModal({ onClose }: BulkUploadModalProps) {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `${item.fileName.replace(/\.xlsx$/i, '')}_Error_Report.csv`;
+      const extension = blob.type.includes('spreadsheetml') ? 'xlsx' : 'csv';
+      a.download = `${item.fileName.replace(/\.xlsx$/i, '')}_Report.${extension}`;
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      showToastMsg('Error report not available. Please try again.');
+      showToastMsg('Upload report not available. Please try again.');
     }
   }
 
@@ -197,7 +200,7 @@ export default function BulkUploadModal({ onClose }: BulkUploadModalProps) {
             <p className="bu-desc">
               To import <strong>Policy</strong> into the system, please download and use the Excel
               template provided below. After filling in the required information, upload the completed file.
-              The highlighted columns in the template indicate mandatory fields.
+              Row 1 identifies mandatory and conditional fields; yellow cells contain approved dropdown values.
             </p>
 
             <button type="button" className="bu-tpl-btn" onClick={handleDownloadTemplate}>
@@ -291,7 +294,7 @@ export default function BulkUploadModal({ onClose }: BulkUploadModalProps) {
                               <button
                                 type="button"
                                 className="bu-dl-btn"
-                                title="Download error report"
+                                title="Download upload report"
                                 onClick={() => handleDownloadErrorReport(item)}
                               >↓</button>
                             )}

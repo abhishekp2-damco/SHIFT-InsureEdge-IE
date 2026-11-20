@@ -2,10 +2,10 @@
 // Bulk Upload (Quotes & Policies) service — creates a submission per parsed Excel
 // row (reusing ISubmissionRepository.CreateAsync, the same code path as
 // POST /api/submissions), tracks progress in bulk_upload_audit, and builds an
-// error CSV for rows that failed.
+// formatted result workbook for every processed row.
 //
 // Column layout matches the real "E&S Homeowners Insurance Products Upload
-// Template" (156 data columns, provided under /Input) — see BulkUploadColumns
+// Template" (157 data columns) — see BulkUploadColumns
 // for the authoritative index map. Rows are read positionally (not by header
 // name) because several headers repeat verbatim across sections (e.g. "First
 // Name" appears once for the primary insured and once per additional named
@@ -22,8 +22,8 @@
 // "additionalInsureds"/"additionalOrgs" arrays (wizard Policy Information step
 // reads those top-level keys) and synced into additional_insured /
 // additional_organisation by SubmissionRepository.
-using System.Text;
 using System.Text.Json;
+using ClosedXML.Excel;
 using H3Lib;
 using H3Lib.Extensions;
 using InsureEdge.Application.DTOs.QuotesPolicies;
@@ -59,10 +59,10 @@ public class BulkUploadService
 
     /// <summary>
     /// Processes parsed Excel rows: creates one Draft submission per row via
-    /// ISubmissionRepository.CreateAsync, tracks per-row failures, and persists
-    /// the final audit row (status + processed count + optional error CSV).
+    /// ISubmissionRepository.CreateAsync, tracks each row's outcome, and persists
+    /// the final audit row (status + processed count + result workbook).
     /// </summary>
-    public async Task<BulkUploadResultDto> ProcessAsync(string fileName, List<string?[]> rows, string module = QuotesPoliciesModule)
+    public async Task<BulkUploadResultDto> ProcessAsync(string fileName, List<BulkUploadRow> rows, string module = QuotesPoliciesModule)
     {
         long clientId;
         long userId;
@@ -79,40 +79,51 @@ public class BulkUploadService
         var audit = await _auditRepo.CreateAuditAsync(clientId, userId, module, fileName, rows.Count);
 
         var successCount = 0;
-        var errors = new List<(int RowNumber, string Reason)>();
+        var reportRows = new List<(int RowNumber, string Status, string Message)>();
+        var seenRows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var i = 0; i < rows.Count; i++)
         {
-            var rowNumber = i + BulkUploadColumns.DataStartRow; // 3 header rows precede the data
-            var row = rows[i];
+            var row = rows[i].Values;
             try
             {
+                var duplicateKey = string.Join('\u001f', row.Select(value => Norm(value)?.ToUpperInvariant() ?? string.Empty));
+                if (!seenRows.Add(duplicateKey))
+                    throw new InvalidOperationException("Duplicate record: this row repeats an earlier row in the same workbook.");
+
                 var form = await BuildSubmissionFormAsync(row, _ratingService);
+                // Bulk upload is Producer-only. Persist the authenticated producer scope
+                // in the same form fields used by the New Submission screen so the quote
+                // can resolve and display its Brokerage Firm and Producer Name.
+                form["brokerageFirmId"] = _tenant.IntermediaryId;
+                form["producerId"] = _tenant.ProducerId;
+                form["isHBProducer"] = _tenant.ProducerId.HasValue;
                 var locations = BuildLocations(form);
                 var mortgages = BuildMortgages(row);
                 var additionalInsureds = BuildAdditionalInsureds(row);
                 var additionalOrgs = BuildAdditionalOrgs(row);
                 var dataJson = JsonSerializer.Serialize(new { form, locations, mortgages, additionalInsureds, additionalOrgs });
-                await _submissionRepo.CreateAsync(clientId, userId, new CreateSubmissionRequest(dataJson));
+                var submission = await _submissionRepo.CreateAsync(clientId, userId, new CreateSubmissionRequest(dataJson));
                 successCount++;
+                reportRows.Add((i + 1, "Success", submission.Id));
             }
             catch (Exception ex)
             {
-                errors.Add((rowNumber, ex.Message));
+                reportRows.Add((i + 1, "Failed", ex.Message));
             }
 
             await _auditRepo.UpdateAuditAsync(clientId, audit.Id, i + 1, "Processing", null);
         }
 
-        var failureCount = errors.Count;
+        var failureCount = reportRows.Count(row => row.Status == "Failed");
         string status = failureCount == 0
             ? "Completed"
             : successCount == 0
                 ? "Failed"
                 : "CompletedWithErrors";
 
-        byte[]? errorFile = failureCount > 0 ? BuildErrorCsv(errors) : null;
-        await _auditRepo.UpdateAuditAsync(clientId, audit.Id, rows.Count, status, errorFile);
+        var reportFile = BuildReportWorkbook(reportRows);
+        await _auditRepo.UpdateAuditAsync(clientId, audit.Id, rows.Count, status, reportFile);
 
         return new BulkUploadResultDto(audit.Id, rows.Count, successCount, failureCount, status);
     }
@@ -144,6 +155,21 @@ public class BulkUploadService
     private static async Task<Dictionary<string, object?>> BuildSubmissionFormAsync(string?[] row, RatingService ratingService)
     {
         string? Get(int col) => col < row.Length ? Norm(row[col]) : null;
+        InvalidOperationException CellError(int col, string message) => new(
+            $"Column {BulkUploadColumns.ExcelColumnName(col)} ({BulkUploadColumns.Headers[col]}): {message}");
+        void Require(int col, string message)
+        {
+            if (string.IsNullOrWhiteSpace(Get(col))) throw CellError(col, message);
+        }
+        void ValidateChoice(int col, string choices, string label)
+        {
+            var value = Get(col);
+            if (string.IsNullOrWhiteSpace(value)) return;
+            var normalized = value.Replace(",", string.Empty).Trim();
+            var allowed = choices.Split(',').Select(choice => choice.Replace(",", string.Empty).Trim());
+            if (!allowed.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                throw CellError(col, $"'{value}' is not a valid {label} value.");
+        }
 
         var typeOfPrimaryInsured = Get(BulkUploadColumns.TypeOfPrimaryInsured);
         var isIndividual = string.Equals(typeOfPrimaryInsured, "Individual", StringComparison.OrdinalIgnoreCase)
@@ -155,20 +181,39 @@ public class BulkUploadService
         var addressSameAsMailing = Get(BulkUploadColumns.AddressSameAsMailing);
 
         // Mandatory (every row)
-        if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.EffectiveDate)))
-            throw new InvalidOperationException("Effective Date is required.");
-        if (string.IsNullOrWhiteSpace(typeOfPrimaryInsured))
-            throw new InvalidOperationException("Type of Primary Insured is required.");
-        if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.MailAddressLine1)))
-            throw new InvalidOperationException("Address Line 1 is required.");
-        if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.MailCity)))
-            throw new InvalidOperationException("City is required.");
-        if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.MailState)))
-            throw new InvalidOperationException("State is required.");
-        if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.MailZip)))
-            throw new InvalidOperationException("Zip Code is required.");
-        if (string.IsNullOrWhiteSpace(addressSameAsMailing))
-            throw new InvalidOperationException("Address same as Mailing Address is required.");
+        Require(BulkUploadColumns.EffectiveDate, "Effective Date is required.");
+        Require(BulkUploadColumns.TypeOfPrimaryInsured, "Type of Primary Insured is required.");
+        Require(BulkUploadColumns.MailAddressLine1, "Mailing Address Line 1 is required.");
+        Require(BulkUploadColumns.MailCity, "Mailing City is required.");
+        Require(BulkUploadColumns.MailState, "Mailing State is required.");
+        Require(BulkUploadColumns.MailZip, "Mailing Zip Code is required.");
+        Require(BulkUploadColumns.AddressSameAsMailing, "Address same as Mailing Address is required.");
+
+        var effectiveDateText = Get(BulkUploadColumns.EffectiveDate)!;
+        if (!DateTime.TryParseExact(
+                effectiveDateText,
+                new[] { "M/d/yyyy", "MM/dd/yyyy", "M/d/yy", "MM/dd/yy" },
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var effectiveDate))
+            throw CellError(BulkUploadColumns.EffectiveDate, "Enter a valid date in MM/DD/YYYY format.");
+
+        ValidateChoice(BulkUploadColumns.TypeOfPrimaryInsured, BulkUploadColumns.TypeOfPrimaryInsuredList, "Type of Primary Insured");
+        ValidateChoice(BulkUploadColumns.Is65OrOlder, BulkUploadColumns.YesNoList, "Yes/No");
+        ValidateChoice(BulkUploadColumns.AddressSameAsMailing, BulkUploadColumns.YesNoList, "Yes/No");
+        ValidateChoice(BulkUploadColumns.SecondaryMortgageeFlag, BulkUploadColumns.YesNoList, "Yes/No");
+        ValidateChoice(BulkUploadColumns.MailState, BulkUploadColumns.StateList, "State");
+        ValidateChoice(BulkUploadColumns.RiskState, BulkUploadColumns.StateList, "State");
+        ValidateChoice(BulkUploadColumns.PhysicalDamageDeductible, BulkUploadColumns.PhysicalDamageDeductibleList, "Physical damage Deductible");
+        ValidateChoice(BulkUploadColumns.LiabilityCoverage, BulkUploadColumns.LiabilityCoverageList, "Amount Of Liability Coverage");
+        ValidateChoice(BulkUploadColumns.ExcessBlanketPl, BulkUploadColumns.ExcessBlanketPlList, "Excess scheduled Blanket Covered Personal Liabilities");
+        ValidateChoice(BulkUploadColumns.Sinkhole, BulkUploadColumns.SinkholeList, "Sinkhole coverage");
+        ValidateChoice(BulkUploadColumns.Earthquake, BulkUploadColumns.EarthquakeList, "Earthquake coverage");
+        ValidateChoice(BulkUploadColumns.Flood, BulkUploadColumns.FloodList, "Flood coverage");
+        ValidateChoice(BulkUploadColumns.WindHail, BulkUploadColumns.WindWildfireList, "Wind & Hail coverage");
+        ValidateChoice(BulkUploadColumns.WildFire, BulkUploadColumns.WindWildfireList, "WildFire coverage");
+        ValidateChoice(BulkUploadColumns.BuildingType, BulkUploadColumns.BuildingTypeList, "Building Type");
+        ValidateChoice(BulkUploadColumns.BuildingDescription, BulkUploadColumns.BuildingDescriptionList, "Building Description");
 
         ValidateAddressLengths("Mailing", Get(BulkUploadColumns.MailAddressLine1), Get(BulkUploadColumns.MailAddressLine2),
             Get(BulkUploadColumns.MailCity), Get(BulkUploadColumns.MailCounty));
@@ -177,25 +222,25 @@ public class BulkUploadService
         // Instructions sheet: purple/"Conditional" columns depend on a sibling column).
         if (isIndividual)
         {
-            if (string.IsNullOrWhiteSpace(firstName))
-                throw new InvalidOperationException("First Name is required when Type of Primary Insured is Individual or Sole Proprietorship.");
-            if (string.IsNullOrWhiteSpace(lastName))
-                throw new InvalidOperationException("Last Name is required when Type of Primary Insured is Individual or Sole Proprietorship.");
+            if (!IsValidRequiredName(firstName))
+                throw new InvalidOperationException("First Name is either empty or invalid.");
+            if (!IsValidRequiredName(lastName))
+                throw new InvalidOperationException("Last Name is either empty or invalid.");
         }
         else if (string.IsNullOrWhiteSpace(organizationName))
         {
-            throw new InvalidOperationException("Organization Name is required when Type of Primary Insured is not Individual or Sole Proprietorship.");
+            throw CellError(BulkUploadColumns.OrganizationName, "Organization Name is required when Type of Primary Insured is not Individual or Sole Proprietorship.");
         }
 
         var riskIsSame = string.Equals(addressSameAsMailing, "Yes", StringComparison.OrdinalIgnoreCase);
         if (!riskIsSame)
         {
             if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.RiskAddressLine1)))
-                throw new InvalidOperationException("Risk Address Line 1 is required when Address same as Mailing Address is No.");
+                throw CellError(BulkUploadColumns.RiskAddressLine1, "Risk Address Line 1 is required when Address same as Mailing Address is No.");
             if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.RiskCity)))
-                throw new InvalidOperationException("Risk City is required when Address same as Mailing Address is No.");
+                throw CellError(BulkUploadColumns.RiskCity, "Risk City is required when Address same as Mailing Address is No.");
             if (string.IsNullOrWhiteSpace(Get(BulkUploadColumns.RiskState)))
-                throw new InvalidOperationException("Risk State is required when Address same as Mailing Address is No.");
+                throw CellError(BulkUploadColumns.RiskState, "Risk State is required when Address same as Mailing Address is No.");
             ValidateAddressLengths("Risk", Get(BulkUploadColumns.RiskAddressLine1), Get(BulkUploadColumns.RiskAddressLine2),
                 Get(BulkUploadColumns.RiskCity), Get(BulkUploadColumns.RiskCounty));
         }
@@ -204,7 +249,7 @@ public class BulkUploadService
         foreach (var (col, label) in BulkUploadColumns.MandatoryCoverageColumns)
         {
             if (string.IsNullOrWhiteSpace(Get(col)))
-                throw new InvalidOperationException($"{label} is required.");
+                throw CellError(col, $"{label} is required.");
         }
 
         // Keys below match NewSubmission.tsx's FormState field names exactly (not
@@ -246,7 +291,9 @@ public class BulkUploadService
             ["age65OrOlder"] = Get(BulkUploadColumns.Is65OrOlder),
             ["organizationName"] = organizationName,
             ["doingBusinessAs"] = Get(BulkUploadColumns.DoingBusinessAs),
-            ["effectiveDate"] = Get(BulkUploadColumns.EffectiveDate),
+            ["effectiveDate"] = effectiveDate.ToString("MM-dd-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            ["expirationDate"] = effectiveDate.AddYears(1).ToString("MM-dd-yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            ["policyTerm"] = "Annual",
 
             // This template is product-specific (E&S Homeowners) — there's no LOB/SubProduct
             // column because the whole file only ever creates that one product's submissions.
@@ -589,12 +636,65 @@ public class BulkUploadService
             : trimmed;
     }
 
-    private static byte[] BuildErrorCsv(List<(int RowNumber, string Reason)> errors)
+    private static byte[] BuildReportWorkbook(List<(int RowNumber, string Status, string Message)> rows)
     {
-        var sb = new StringBuilder();
-        sb.AppendLine("Row,Error");
-        foreach (var (rowNumber, reason) in errors)
-            sb.AppendLine($"{rowNumber},\"{reason.Replace("\"", "\"\"")}\"");
-        return Encoding.UTF8.GetBytes(sb.ToString());
+        using var workbook = new XLWorkbook();
+        var sheet = workbook.Worksheets.Add("Report");
+        sheet.Cell(1, 1).Value = "Row Number";
+        sheet.Cell(1, 2).Value = "Status";
+        sheet.Cell(1, 3).Value = "Message";
+
+        var outputRow = 2;
+        foreach (var (rowNumber, status, message) in rows)
+        {
+            sheet.Cell(outputRow, 1).Value = rowNumber;
+            sheet.Cell(outputRow, 2).Value = status;
+            // Assign as text so 11-digit quote numbers retain their leading zeroes.
+            sheet.Cell(outputRow, 3).SetValue(message);
+            sheet.Row(outputRow).Height = Math.Max(15, EstimateWrappedLineCount(message, 12) * 15);
+            outputRow++;
+        }
+
+        sheet.Column(1).Width = 12;
+        sheet.Column(2).Width = 12;
+        sheet.Column(3).Width = 12;
+        sheet.Column(3).Style.Alignment.WrapText = true;
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    private static bool IsValidRequiredName(string? value)
+    {
+        var name = Norm(value);
+        return name is { Length: >= 2 and <= 50 };
+    }
+
+    private static int EstimateWrappedLineCount(string value, int maxCharactersPerLine)
+    {
+        var lineCount = 1;
+        var currentLength = 0;
+        foreach (var word in value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (currentLength == 0)
+            {
+                currentLength = word.Length;
+            }
+            else if (currentLength + 1 + word.Length <= maxCharactersPerLine)
+            {
+                currentLength += 1 + word.Length;
+            }
+            else
+            {
+                lineCount++;
+                currentLength = word.Length;
+            }
+
+            if (currentLength <= maxCharactersPerLine) continue;
+            lineCount += (currentLength - 1) / maxCharactersPerLine;
+            currentLength = ((currentLength - 1) % maxCharactersPerLine) + 1;
+        }
+        return lineCount;
     }
 }

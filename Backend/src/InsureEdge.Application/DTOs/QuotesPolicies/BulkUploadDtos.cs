@@ -20,3 +20,7 @@ public record BulkUploadResultDto(
     int FailureCount,
     string Status
 );
+
+// Keeps the physical worksheet row attached to its parsed values so blank rows do
+// not shift the row reported in validation/error files.
+public record BulkUploadRow(int RowNumber, string?[] Values);

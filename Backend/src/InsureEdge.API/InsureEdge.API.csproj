@@ -18,4 +18,8 @@
     <ProjectReference Include="..\InsureEdge.Application\InsureEdge.Application.csproj" />
     <ProjectReference Include="..\InsureEdge.Infrastructure\InsureEdge.Infrastructure.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Templates\E&amp;S Homeowners Insurance Products Upload Template.xlsx"
+                      LogicalName="InsureEdge.API.Templates.BulkUploadTemplate.xlsx" />
+  </ItemGroup>
 </Project>
