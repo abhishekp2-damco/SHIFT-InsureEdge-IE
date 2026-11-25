@@ -54,8 +54,8 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             {
                 x.Policy,
                 x.Account,
-                Lob = x.Policy.Products.Select(p => p.Product!.ProductName).FirstOrDefault(),
-                SubProductName = x.Policy.Products.Select(p => p.SubProduct!.SubProductName).FirstOrDefault(),
+                Lob = x.Policy.Products.Select(p => p.Product!.ProductName).FirstOrDefault() ?? x.Policy.Lob,
+                SubProductName = x.Policy.Products.Select(p => p.SubProduct!.SubProductName).FirstOrDefault() ?? x.Policy.SubProduct,
                 // QP-03: quotes without a product row (e.g. bulk uploads) fall back to the policy's state.
                 ProductState = x.Policy.Products.Select(p => p.State).FirstOrDefault() ?? x.Policy.StateProvince,
                 Coverage = x.Policy.LimitCoverages.FirstOrDefault(),
@@ -67,6 +67,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
             joined = joined.Where(x =>
                 (x.Policy.QuoteNumber != null && x.Policy.QuoteNumber.ToLower().Contains(s)) ||
                 InsuredNameLower(x.Account).Contains(s) ||
+                (x.Policy.InsuredName != null && x.Policy.InsuredName.ToLower().Contains(s)) ||
                 (x.Lob != null && x.Lob.ToLower().Contains(s)) ||
                 (x.ProductState != null && x.ProductState.ToLower().Contains(s)));
         }
@@ -114,7 +115,7 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
 
         var items = rows.Select(x => new NbQuoteListItemDto(
             x.Policy.QuoteNumber ?? "",
-            InsuredName(x.Account),
+            string.IsNullOrWhiteSpace(InsuredName(x.Account)) ? x.Policy.InsuredName ?? "" : InsuredName(x.Account),
             x.Lob,
             x.SubProductName,
             x.Policy.EffectiveDate?.ToString("MM-dd-yyyy"),
@@ -998,12 +999,22 @@ public class PolicyQuoteRepository : IPolicyQuoteRepository
     private IQueryable<PolicyAccountPair> BasePolicyAccountQuery(
         long clientId, string policyType, string insuredTypeLower)
     {
-        return _db.Policies
+        var query = _db.Policies
             .Where(p => p.ClientId == clientId && p.PolicyType == policyType)
             .Join(_db.Accounts.Where(a => a.ClientId == clientId),
                 p => p.AccountId, a => a.Id,
-                (p, a) => new { Policy = p, Account = a })
-            .Where(x => x.Account.AccountType != null && x.Account.AccountType.ToLower() == insuredTypeLower)
+                (p, a) => new { Policy = p, Account = a });
+
+        // The New Business landing uses "all" so a mixed Individual/Business bulk
+        // upload is displayed in one register. Existing type-specific callers retain
+        // their original filtering behavior.
+        if (!string.Equals(insuredTypeLower, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            query = query.Where(x => x.Account.AccountType != null
+                && x.Account.AccountType.ToLower() == insuredTypeLower);
+        }
+
+        return query
             .Select(x => new PolicyAccountPair { Policy = x.Policy, Account = x.Account });
     }
 

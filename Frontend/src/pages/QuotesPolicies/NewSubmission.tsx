@@ -3151,7 +3151,7 @@ function StepQuoteReview({ form, onEdit }: { form: FormState; onEdit: () => void
   // Endorsement: real diff against the prior policy (GET .../endorsement-changes) — only
   // shown when at least one field actually changed. Renewal comparison isn't wired to
   // real data yet — kept as a placeholder, always shown, unchanged.
-  const insuredTypeSegment = String(scenarioForm.insuredType).toLowerCase() === 'business' ? 'business' : 'individual';
+  const insuredTypeSegment = isBusiness ? 'business' : 'individual';
   const [endorsementChanges, setEndorsementChanges] = useState<[string, string, string, string][]>([]);
   useEffect(() => {
     if (flow !== 'endorsement' || !scenarioForm.policyNumber) { setEndorsementChanges([]); return; }
@@ -3312,7 +3312,7 @@ function buildQuoteDocumentHtml(rawForm: FormState): string {
 
   const usd = (n: number) => `USD ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const esc = (s: string) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const insured = form.insuredType === 'Business' && form.organizationName
+  const insured = !PERSON_INSURED_TYPES.has(form.insuredType) && form.organizationName
     ? form.organizationName
     : [form.firstName, form.middleName, form.lastName].filter(Boolean).join(' ');
   const address = [form.addressLine1, form.addressLine2, form.city, form.state, form.zip].filter(Boolean).join(', ');
@@ -3622,7 +3622,7 @@ function StepFinalize({
   // Summary's "Previous Amount" column: the prior policy's own Coverage Premium/Taxes/
   // Fees/Total, computed by running the SAME calculatePlanAmounts()/STATE_TAX formula
   // used above against the prior policy's raw inputs (GET .../endorsement-prior-premium).
-  const insuredTypeSegment = String(scenarioForm.insuredType).toLowerCase() === 'business' ? 'business' : 'individual';
+  const insuredTypeSegment = PERSON_INSURED_TYPES.has(scenarioForm.insuredType) ? 'individual' : 'business';
   const [priorPremiumForm, setPriorPremiumForm] = useState<Partial<FormState> | null>(null);
   useEffect(() => {
     if (!isEndorsementFlow || !scenarioForm.policyNumber) { setPriorPremiumForm(null); return; }
@@ -6311,7 +6311,7 @@ export default function NewSubmission() {
   const currentPreviousStep = previousStep();
   const atLastStep = currentNextStep === step;
   const awaitingManualQuoteApproval = isManualNewBusinessAwaitingApproval(scenarioForm);
-  const insuredTypeSegment = String(scenarioForm.insuredType).toLowerCase() === 'business' ? 'business' : 'individual';
+  const insuredTypeSegment = PERSON_INSURED_TYPES.has(scenarioForm.insuredType) ? 'individual' : 'business';
   const policyBackPath = `/quotes-policies/${insuredTypeSegment}/policies`;
   const issuedPolicyTimelinePath = `/quotes-policies/policies/${encodeURIComponent(
     valueOrFallback(scenarioForm.policyNumber, submissionId),

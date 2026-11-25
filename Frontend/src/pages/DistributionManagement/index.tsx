@@ -14,6 +14,7 @@ import ReviewSubmitPage from './ReviewSubmitPage';
 import ViewIntermediaryPage from './ViewIntermediaryPage';
 import BulkUploadModal from './BulkUploadModal';
 import { useSessionState } from '../../hooks/useSessionState';
+import { useColumnOrder } from '../../hooks/useColumnOrder';
 
 const PERMISSIONS = { canCreate: true, canEdit: true, canDelete: false };
 const DEFAULT_PAGE_SIZE = 10;
@@ -361,6 +362,7 @@ function ListPage({ onAdd, onView }: { onAdd: () => void; onView: (item: Interme
   }, [userItems, apiOnline]);
 
   const [visibleCols,    setVisibleCols]    = useState<Set<string>>(() => new Set(COLUMNS.map(c => String(c.key))));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<string>(COLUMNS.map(c => String(c.key)));
   const [showColChooser, setShowColChooser] = useState(false);
   const [chooserPos,     setChooserPos]     = useState<{ top: number; left: number } | null>(null);
   const [filterCol,  setFilterCol]  = useState<string | null>(null);
@@ -469,7 +471,7 @@ function ListPage({ onAdd, onView }: { onAdd: () => void; onView: (item: Interme
   }, []);
 
   const startRow    = (curPage - 1) * pageSize + 1;
-  const displayCols = COLUMNS.filter(c => visibleCols.has(String(c.key)));
+  const displayCols = colOrder.map(key => COLUMNS.find(col => String(col.key) === key)!).filter(col => visibleCols.has(String(col.key)));
 
   function renderCell(item: IntermediaryListItem, key: string): React.ReactNode {
     switch (key) {
@@ -561,8 +563,9 @@ function ListPage({ onAdd, onView }: { onAdd: () => void; onView: (item: Interme
                   const activeFilter = !!appliedFilters[key];
                   return (
                     <th
+                      {...headerProps(key)}
                       key={key}
-                      style={{ padding: '10px 12px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12, color: '#374151', whiteSpace: 'nowrap', cursor: col.sortable ? 'pointer' : 'default', userSelect: 'none' }}
+                      style={{ padding: '10px 12px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12, color: '#374151', whiteSpace: 'nowrap', cursor: 'grab', userSelect: 'none', opacity: draggingCol === key ? 0.55 : 1 }}
                       onClick={col.sortable ? () => handleSortChange(key) : undefined}
                       aria-sort={col.sortable && sort.column === key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : undefined}
                     >

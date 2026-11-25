@@ -39,31 +39,42 @@ public class SubmissionRepository : ISubmissionRepository
     public async Task<SubmissionDto> CreateAsync(long clientId, long userId, CreateSubmissionRequest req)
     {
         await using var tx = await _db.Database.BeginTransactionAsync();
-
-        string id;
-        do
+        try
         {
-            id = (3_700_000 + _rng.Next(0, 900_000)).ToString().PadLeft(11, '0');
-        } while (await _db.Submissions.AnyAsync(s => s.Id == id));
+            string id;
+            do
+            {
+                id = (3_700_000 + _rng.Next(0, 900_000)).ToString().PadLeft(11, '0');
+            } while (await _db.Submissions.AnyAsync(s => s.Id == id));
 
-        var dataJson = EnsureSubmissionDataHasIdentity(NormalizeJson(req.DataJson), id);
-        var submission = new Submission
+            var dataJson = EnsureSubmissionDataHasIdentity(NormalizeJson(req.DataJson), id);
+            var submission = new Submission
+            {
+                Id = id,
+                ClientId = clientId,
+                Status = "Draft",
+                Data = dataJson,
+                CreatedBy = userId,
+                CreatedOn = DateTime.UtcNow,
+            };
+            _db.Submissions.Add(submission);
+            await _db.SaveChangesAsync();
+
+            await EnsurePolicyForSubmissionAsync(clientId, userId, id, dataJson);
+            await SyncPolicyFromSubmissionAsync(clientId, userId, id, dataJson, submission.Status);
+
+            await tx.CommitAsync();
+            return Map(submission);
+        }
+        catch
         {
-            Id = id,
-            ClientId = clientId,
-            Status = "Draft",
-            Data = dataJson,
-            CreatedBy = userId,
-            CreatedOn = DateTime.UtcNow,
-        };
-        _db.Submissions.Add(submission);
-        await _db.SaveChangesAsync();
-
-        await EnsurePolicyForSubmissionAsync(clientId, userId, id, dataJson);
-        await SyncPolicyFromSubmissionAsync(clientId, userId, id, dataJson, submission.Status);
-
-        await tx.CommitAsync();
-        return Map(submission);
+            await tx.RollbackAsync();
+            // Bulk upload reuses this scoped repository for every spreadsheet row.
+            // A failed SaveChanges leaves its Added graph in the change tracker; without
+            // clearing it, every later row retries that failed graph and is lost as well.
+            _db.ChangeTracker.Clear();
+            throw;
+        }
     }
 
     public async Task<SubmissionDto?> GetByIdAsync(long clientId, string id)
@@ -1287,7 +1298,7 @@ public class SubmissionRepository : ISubmissionRepository
         if (existingPolicy != null)
             return;
 
-        var insuredType = string.Equals(StringOrNull(form, "insuredType"), "business", StringComparison.OrdinalIgnoreCase)
+        var insuredType = IsBusinessInsuredType(StringOrNull(form, "insuredType"))
             ? "Business" : "Individual";
         var firstName = BlankToNull(StringOrNull(form, "firstName"));
         var middleName = BlankToNull(StringOrNull(form, "middleName"));
@@ -1329,6 +1340,8 @@ public class SubmissionRepository : ISubmissionRepository
             AccountId = account.Id,
             InsuredName = insuredName,
             Lob = lob,
+            SubProduct = BlankToNull(StringOrNull(form, "subProduct")),
+            ApprovalStatus = BlankToNull(StringOrNull(form, "approvalStatus")),
             CreatedBy = userId,
             CreatedOn = DateTime.UtcNow,
             UpdatedOn = DateTime.UtcNow,
@@ -1538,12 +1551,15 @@ public class SubmissionRepository : ISubmissionRepository
 
         System.Console.WriteLine($"[SyncPolicyFromSubmissionAsync] Found policy {policy.Id} for endorsement sync");
 
-        var insuredType = string.Equals(StringOrNull(form, "insuredType"), "business", StringComparison.OrdinalIgnoreCase)
-            ? "Business" : "Individual";
+        var isBusiness = IsBusinessInsuredType(StringOrNull(form, "insuredType"));
+        var insuredType = isBusiness ? "Business" : "Individual";
         var firstName = BlankToNull(StringOrNull(form, "firstName"));
         var middleName = BlankToNull(StringOrNull(form, "middleName"));
         var lastName = BlankToNull(StringOrNull(form, "lastName"));
         var composedName = BlankToNull(string.Join(" ", new[] { firstName, middleName, lastName }.Where(v => !string.IsNullOrWhiteSpace(v))));
+        var organizationName = BlankToNull(StringOrNull(form, "organizationName"));
+        var doingBusinessAs = BlankToNull(StringOrNull(form, "doingBusinessAs"));
+        var insuredName = isBusiness ? organizationName ?? doingBusinessAs ?? composedName : composedName;
 
         if (policy.AccountId.HasValue)
         {
@@ -1551,14 +1567,16 @@ public class SubmissionRepository : ISubmissionRepository
             if (account != null)
             {
                 account.AccountType = insuredType;
-                account.FirstName = insuredType == "business" ? null : firstName;
-                account.MiddleName = insuredType == "business" ? null : middleName;
-                account.LastName = insuredType == "business" ? null : lastName;
-                account.LegalBusinessName = insuredType == "business" ? (composedName ?? firstName) : null;
+                account.FirstName = isBusiness ? null : firstName;
+                account.MiddleName = isBusiness ? null : middleName;
+                account.LastName = isBusiness ? null : lastName;
+                account.LegalBusinessName = isBusiness ? insuredName : null;
+                account.DoingBusinessAs = doingBusinessAs;
                 account.UpdatedOn = DateTime.UtcNow;
             }
         }
 
+        policy.InsuredName = insuredName ?? policy.InsuredName;
         policy.EffectiveDate = ToDateOnly(StringOrNull(form, "effectiveDate")) ?? policy.EffectiveDate;
         policy.ExpiryDate = ToDateOnly(StringOrNull(form, "expirationDate")) ?? policy.ExpiryDate;
         policy.PolicyTerm = BlankToNull(StringOrNull(form, "policyTerm")) ?? policy.PolicyTerm;
@@ -1817,6 +1835,14 @@ public class SubmissionRepository : ISubmissionRepository
     }
 
     private static string? BlankToNull(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    // `insuredType` stores the specific legal form shown by the wizard. Only these
+    // two values are person types; every other populated approved value is grouped
+    // under Business in the relational account/register model.
+    private static bool IsBusinessInsuredType(string? value)
+        => !string.IsNullOrWhiteSpace(value)
+           && !string.Equals(value, "Individual", StringComparison.OrdinalIgnoreCase)
+           && !string.Equals(value, "Sole Proprietorship", StringComparison.OrdinalIgnoreCase);
 
     private static readonly string[] DateFormats = { "MM-dd-yyyy", "MM/dd/yyyy", "yyyy-MM-dd" };
 

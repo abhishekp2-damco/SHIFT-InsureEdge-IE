@@ -43,6 +43,7 @@ import PoliciesRegister from './pages/QuotesPolicies/PoliciesRegister';
 import NewSubmission from './pages/QuotesPolicies/NewSubmission';
 import PolicySummaryPage from './pages/PolicySummaryPage';
 import DashboardPage from './pages/DashboardPage';
+import ReportManagementModule from './pages/ReportManagement';
 
 function FNOLRegPageWithKey() {
   const { id } = useParams<{ id: string }>();
@@ -102,14 +103,14 @@ export default function App() {
                   <Route path="/my-profile" element={<MyProfilePage />} />
                   <Route path="/distribution/*" element={<DistributionManagementModule />} />
                   <Route path="/billing/*" element={<BillingManagementModule />} />
+                  <Route path="/reports/*" element={<ReportManagementModule />} />
 
                   {/* Quotes & Policies — ported from prototype */}
                   <Route element={<QuotesPoliciesLandingShell />}>
-                    <Route path="/quotes-policies/individual/nb-quotes" element={<NBQuotesRegister insuredType="individual" />} />
+                    <Route path="/quotes-policies/individual/nb-quotes" element={<NBQuotesRegister insuredType="all" />} />
                     <Route path="/quotes-policies/individual/endorsements" element={<EndorsementRegister insuredType="individual" />} />
                     <Route path="/quotes-policies/individual/renewals" element={<RenewalRegister insuredType="individual" />} />
                     <Route path="/quotes-policies/individual/policies" element={<PoliciesRegister insuredType="individual" />} />
-                    {/* D1-16: Business branch not used by H&B — redirect to the Individual registers. */}
                     <Route path="/quotes-policies/business/nb-quotes" element={<Navigate to="/quotes-policies/individual/nb-quotes" replace />} />
                     <Route path="/quotes-policies/business/endorsements" element={<Navigate to="/quotes-policies/individual/endorsements" replace />} />
                     <Route path="/quotes-policies/business/renewals" element={<Navigate to="/quotes-policies/individual/renewals" replace />} />

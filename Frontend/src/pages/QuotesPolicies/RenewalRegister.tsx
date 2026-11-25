@@ -10,6 +10,7 @@ import {
 import { quotesPoliciesApi } from '../../api/quotesPolicies';
 import type { RenewalListItemDto, RenewalsKpiDto } from '../../types/Policy';
 import { useSessionState } from '../../hooks/useSessionState';
+import { useColumnOrder } from '../../hooks/useColumnOrder';
 
 type Renewal = RenewalListItemDto;
 type Kpis = RenewalsKpiDto;
@@ -35,20 +36,23 @@ const ALL_LABELS: Record<string, string> = {
 };
 
 type ColKey = typeof COL_DEFS[number]['key'];
+type GridColKey = ColKey | 'insuredName' | 'status';
+const GRID_COLS: GridColKey[] = ['id', 'originalPolicyNumber', 'insuredName', 'lob', 'subProduct', 'intermediaryType', 'intermediary', 'producerName', 'effectiveDate', 'createdAt', 'expirationDate', 'renewalOfferDate', 'premiumEstimate', 'status'];
 type ColVisibility = Record<ColKey, boolean>;
 const DEFAULT_VIS = Object.fromEntries(COL_DEFS.map(c => [c.key, true])) as ColVisibility;
 const PAGE_SIZES = [10, 25, 50] as const;
 
-function Th({ col, label, sort, onSort, filters, onFilterClick, filterPopup }: {
+function Th({ col, label, sort, onSort, filters, onFilterClick, filterPopup, dragProps }: {
   col: string; label: string; sort: SortState | null;
   onSort: (col: string) => void; filters: AppliedFilters;
   onFilterClick: (col: string, e: React.MouseEvent) => void;
   filterPopup: { col: string } | null;
+  dragProps?: React.ThHTMLAttributes<HTMLTableCellElement>;
 }) {
   const has = !!filters[col];
   const isSort = sort?.col === col;
   return (
-    <th className={has ? 'th-filtered' : ''}>
+    <th {...dragProps} className={`${has ? 'th-filtered ' : ''}${dragProps?.className ?? ''}`.trim()}>
       <div className="th-inner">
         <span className="th-label" style={{ color: has ? '#1a3b6b' : undefined, cursor: 'pointer' }} onClick={() => onSort(col)}>
           {label}{isSort && <span className="sort-arrow">{sort!.dir === 'asc' ? ' ↑' : ' ↓'}</span>}
@@ -77,6 +81,7 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
   const [colPanelOpen, setColPanelOpen]     = useState(false);
   const [colPanelAnchor, setColPanelAnchor] = useState({ top: 0, left: 0 });
   const colBtnRef = useRef<HTMLButtonElement>(null);
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<GridColKey>(GRID_COLS);
 
   useEffect(() => {
     quotesPoliciesApi.getRenewalsKpis(insuredType).then(setKpis);
@@ -157,6 +162,26 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
     for (let i = Math.max(1, page - delta); i <= Math.min(totalPages, page + delta); i++) nums.push(i);
     return nums.map(n => <button key={n} className={`page-btn${n === page ? ' active' : ''}`} onClick={() => setPage(n)}>{n}</button>);
   }
+  const orderedVisibleCols = colOrder.filter(col => col === 'insuredName' || col === 'status' || visibleCols[col]);
+
+  function renderRenewalCell(row: Renewal, col: GridColKey) {
+    switch (col) {
+      case 'id': return <td key={col} className="mono">{row.id}</td>;
+      case 'originalPolicyNumber': return <td key={col} className="mono" style={{ color: '#1a3b6b' }}>{row.originalPolicyNumber}</td>;
+      case 'insuredName': return <td key={col}><div className="insured-cell"><div className="insured-avatar" style={{ background: avatarColor(row.insuredName) }}>{initials(row.insuredName)}</div><span className="insured-name">{row.insuredName}</span></div></td>;
+      case 'lob': return <td key={col}>{row.lob}</td>;
+      case 'subProduct': return <td key={col}>{row.subProduct || <span style={{ color: '#9ca3af' }}>-</span>}</td>;
+      case 'intermediaryType': return <td key={col}>{row.intermediaryType}</td>;
+      case 'intermediary': return <td key={col}>{row.intermediary}</td>;
+      case 'producerName': return <td key={col}>{row.producerName}</td>;
+      case 'effectiveDate': return <td key={col}>{row.effectiveDate}</td>;
+      case 'createdAt': return <td key={col}>{row.createdAt}</td>;
+      case 'expirationDate': return <td key={col}>{row.expirationDate}</td>;
+      case 'renewalOfferDate': return <td key={col}>{row.renewalOfferDate}</td>;
+      case 'premiumEstimate': return <td key={col} style={{ textAlign: 'right' }}>{row.premiumEstimate != null ? `$${Number(row.premiumEstimate).toLocaleString()}` : <span style={{ color: '#9ca3af' }}>-</span>}</td>;
+      case 'status': return <td key={col}><span className={`badge badge-${(row.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{row.status}</span></td>;
+    }
+  }
 
   return (
     <div className="page-content">
@@ -225,20 +250,7 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
                 </th>
                 <th style={{ width: 28 }}></th>
                 <th>Action</th>
-                {visibleCols.id                   && <Th col="id"                   label="Renewal ID"              sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.originalPolicyNumber && <Th col="originalPolicyNumber" label="Original Policy Number"  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                <Th col="insuredName"               label="Insured Name"            sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
-                {visibleCols.lob                  && <Th col="lob"                  label="Line of Business"        sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.subProduct           && <Th col="subProduct"           label="Sub Product"             sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.intermediaryType     && <Th col="intermediaryType"     label="Intermediary Type"       sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.intermediary         && <Th col="intermediary"         label="Intermediary"            sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.producerName         && <Th col="producerName"         label="Producer Name"           sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.effectiveDate        && <Th col="effectiveDate"        label="Effective Date"          sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.createdAt            && <Th col="createdAt"            label="Creation Date"           sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.expirationDate       && <Th col="expirationDate"       label="Expiration Date"         sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.renewalOfferDate     && <Th col="renewalOfferDate"     label="Renewal Offer Date"      sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.premiumEstimate      && <Th col="premiumEstimate"      label="Premium Estimate"        sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                <Th col="status"                    label="Status"                  sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
+                {orderedVisibleCols.map(col => <Th key={col} col={col} label={ALL_LABELS[col]} sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} dragProps={{ ...headerProps(col), className: draggingCol === col ? 'column-dragging' : '' }} />)}
               </tr>
             </thead>
             <tbody>
@@ -248,25 +260,7 @@ export default function RenewalRegister({ insuredType }: { insuredType: string }
                   <td className="row-num">{(page - 1) * pageSize + i + 1}</td>
                   <td><input type="checkbox" /></td>
                   <td><div className="action-cell"><button className="action-btn" title="View Plans Overview" onClick={e => { e.stopPropagation(); openRenewal(r.id); }}><EyeIcon /></button></div></td>
-                  {visibleCols.id                   && <td className="mono">{r.id}</td>}
-                  {visibleCols.originalPolicyNumber && <td className="mono" style={{ color: '#1a3b6b' }}>{r.originalPolicyNumber}</td>}
-                  <td>
-                    <div className="insured-cell">
-                      <div className="insured-avatar" style={{ background: avatarColor(r.insuredName) }}>{initials(r.insuredName)}</div>
-                      <span className="insured-name">{r.insuredName}</span>
-                    </div>
-                  </td>
-                  {visibleCols.lob              && <td>{r.lob}</td>}
-                  {visibleCols.subProduct       && <td>{r.subProduct || <span style={{ color: '#9ca3af' }}>-</span>}</td>}
-                  {visibleCols.intermediaryType && <td>{r.intermediaryType}</td>}
-                  {visibleCols.intermediary     && <td>{r.intermediary}</td>}
-                  {visibleCols.producerName     && <td>{r.producerName}</td>}
-                  {visibleCols.effectiveDate    && <td>{r.effectiveDate}</td>}
-                  {visibleCols.createdAt        && <td>{r.createdAt}</td>}
-                  {visibleCols.expirationDate   && <td>{r.expirationDate}</td>}
-                  {visibleCols.renewalOfferDate && <td>{r.renewalOfferDate}</td>}
-                  {visibleCols.premiumEstimate  && <td style={{ textAlign: 'right' }}>{r.premiumEstimate != null ? `$${Number(r.premiumEstimate).toLocaleString()}` : <span style={{ color: '#9ca3af' }}>-</span>}</td>}
-                  <td><span className={`badge badge-${(r.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{r.status}</span></td>
+                  {orderedVisibleCols.map(col => renderRenewalCell(r, col))}
                 </tr>
               ))}
             </tbody>

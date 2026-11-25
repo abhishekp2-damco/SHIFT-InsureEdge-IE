@@ -2,9 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { configurationsApi, type ConfigurationListItem } from '../api/configurations';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 type SortKey = 'tableName' | 'lastModifiedDate' | 'lastModifiedBy';
 type SortDir = 'asc' | 'desc';
+const GRID_COLUMNS: { key: SortKey; label: string; width?: number }[] = [
+  { key: 'tableName', label: 'Table Name' },
+  { key: 'lastModifiedDate', label: 'Last Modified Date', width: 200 },
+  { key: 'lastModifiedBy', label: 'Last Modified By', width: 260 },
+];
 
 function SearchIcon() {
   return (
@@ -126,6 +132,7 @@ export default function ClaimsMasterConfigPage() {
   const [toast, setToast] = useState('');
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<SortKey>(GRID_COLUMNS.map(col => col.key));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function handleSearchChange(val: string) {
@@ -227,18 +234,10 @@ export default function ClaimsMasterConfigPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
-              <th style={TH} onClick={() => handleSort('tableName')}>
-                Table Name
-                <SortIcon active={sortKey === 'tableName'} dir={sortKey === 'tableName' ? sortDir : 'asc'} />
-              </th>
-              <th style={{ ...TH, width: 200 }} onClick={() => handleSort('lastModifiedDate')}>
-                Last Modified Date
-                <SortIcon active={sortKey === 'lastModifiedDate'} dir={sortKey === 'lastModifiedDate' ? sortDir : 'asc'} />
-              </th>
-              <th style={{ ...TH, width: 260 }} onClick={() => handleSort('lastModifiedBy')}>
-                Last Modified By
-                <SortIcon active={sortKey === 'lastModifiedBy'} dir={sortKey === 'lastModifiedBy' ? sortDir : 'asc'} />
-              </th>
+              {colOrder.map(key => {
+                const col = GRID_COLUMNS.find(item => item.key === key)!;
+                return <th {...headerProps(key)} key={key} style={{ ...TH, width: col.width, cursor: 'grab', opacity: draggingCol === key ? 0.55 : 1 }} onClick={() => handleSort(key)}>{col.label}<SortIcon active={sortKey === key} dir={sortKey === key ? sortDir : 'asc'} /></th>;
+              })}
               <th style={{ ...TH, width: 120, textAlign: 'right', cursor: 'default' }}>
                 Action
               </th>
@@ -254,16 +253,12 @@ export default function ClaimsMasterConfigPage() {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={4} style={{ ...TD, textAlign: 'center', color: '#94a3b8', padding: 48 }}>
-                  No records found.
+                  No Data Available
                 </td>
               </tr>
             ) : rows.map(row => (
               <tr key={row.id} style={{ background: '#fff' }}>
-                <td style={TD}>{row.tableName}</td>
-                <td style={{ ...TD, color: '#374151' }}>{row.lastModifiedDate}</td>
-                <td style={{ ...TD, color: row.lastModifiedBy === '-' ? '#374151' : '#0B5AA0' }}>
-                  {row.lastModifiedBy}
-                </td>
+                {colOrder.map(key => <td key={key} style={{ ...TD, color: key === 'lastModifiedBy' && row.lastModifiedBy !== '-' ? '#0B5AA0' : key === 'tableName' ? '#111827' : '#374151' }}>{row[key]}</td>)}
                 <td style={{ ...TD, textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <button

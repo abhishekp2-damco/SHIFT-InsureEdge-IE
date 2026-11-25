@@ -24,6 +24,8 @@ public sealed class ProducerModuleRestrictionFilter : IAuthorizationFilter
         // Claims (including its sub-screens)
         "Claims", "ClaimsDashboard", "ClaimQuery", "ClaimLetters", "Worksheet",
         "LetterTemplates", "Adjusters", "Payees", "Configurations",
+        // Report Management (server-side tenant/brokerage/producer scoping is applied by the service)
+        "ReportManagement",
     };
 
     // Controllers a producer can only read: New Submission's Brokerage Firm / Producer

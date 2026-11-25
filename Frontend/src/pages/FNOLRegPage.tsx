@@ -7,6 +7,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
 import { useSessionState } from '../hooks/useSessionState';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 import { formatPhoneView } from '../utils/fieldValidation';
 import type {
   PolicySearchDto,
@@ -164,14 +165,11 @@ function DetailField({ label, value }: { label: string; value?: string | null })
 
 // ─── Step 1 helpers ──────────────────────────────────────────────────────────
 
-const AVATAR_COLORS = ['#1565c0','#00695c','#1b5e20','#6a1b9a','#e65100','#880e4f','#0277bd','#2e7d32'];
-function avatarColor(name: string) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return AVATAR_COLORS[h % AVATAR_COLORS.length]; }
 function initials(name: string) { return name.trim().split(/\s+/).map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase(); }
 
 function Avatar({ name }: { name: string }) {
-  const bg = avatarColor(name);
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: bg, color: '#fff', fontSize: 10, fontWeight: 700, flexShrink: 0, marginRight: 7 }}>
+    <span className="grid-avatar" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', fontSize: 10, fontWeight: 700, flexShrink: 0, marginRight: 7 }}>
       {initials(name)}
     </span>
   );
@@ -369,6 +367,7 @@ function Step1PolicySearch({ onNext, onCancel }: Step1Props) {
 
   // Column visibility — hamburger lives in the table header <th>
   const [visibleCols, setVisibleCols] = useState<Set<PolicyColKey>>(new Set(DEFAULT_VISIBLE));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<PolicyColKey>(POLICY_COLS.map(col => col.key));
   const [modifyColsAnchor, setModifyColsAnchor] = useState<DOMRect | null>(null);
   const modifyBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -466,7 +465,7 @@ function Step1PolicySearch({ onNext, onCancel }: Step1Props) {
     });
   }, [modalData, existingFilters]);
 
-  const visibleColDefs = POLICY_COLS.filter(c => visibleCols.has(c.key));
+  const visibleColDefs = colOrder.map(key => POLICY_COLS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
   const activeFilterCount = Object.keys(colFilters).length;
   const colSpan = visibleColDefs.length + 2; // ≡ (with row#) + Action
 
@@ -553,7 +552,7 @@ function Step1PolicySearch({ onNext, onCancel }: Step1Props) {
                 </th>
                 <th style={{ ...thStyle, width: 56 }}>Action</th>
                 {visibleColDefs.map(col => (
-                  <th key={col.key} style={thStyle}>
+                  <th {...headerProps(col.key)} key={col.key} style={{ ...thStyle, cursor: 'grab', opacity: draggingCol === col.key ? 0.55 : 1 }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                       <span>{col.label}</span>
                       {mainFilterBtn(col.key)}

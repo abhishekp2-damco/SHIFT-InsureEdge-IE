@@ -1,6 +1,6 @@
 // AI_GENERATED | HUMAN_VALIDATION_REQUIRED
 // Form atoms shared by the Client Information tab and the Office pop-up.
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import DatePicker from '../../components/ui/DatePicker';
 import PhoneCountrySelect, { PHONE_COUNTRY_CA, PHONE_COUNTRY_US } from '../../components/ui/PhoneCountrySelect';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -53,8 +53,8 @@ export function YearPicker({ value, onChange, error, disabled }: {
   return <DatePicker mode="year" value={value ?? ''} onChange={onChange} hasError={Boolean(error)} disabled={disabled} placeholder="####" />;
 }
 
-export function Select({ value, onChange, options, disabled, error }: {
-  value?: string; onChange: (v: string) => void; options: readonly string[]; disabled?: boolean; error?: string;
+export function Select({ value, onChange, options, resetKey, disabled, error }: {
+  value?: string; onChange: (v: string) => void; options: readonly string[]; resetKey?: string; disabled?: boolean; error?: string;
 }) {
   const opts = options.map(o => ({ value: o, label: o }));
   return (
@@ -63,6 +63,7 @@ export function Select({ value, onChange, options, disabled, error }: {
         value={value ?? ''}
         onChange={onChange}
         options={opts}
+        resetKey={resetKey}
         placeholder="Select..."
         clearable
         disabled={disabled}
@@ -90,42 +91,68 @@ export function OptionSelect({ value, onChange, options, disabled, error }: {
 }
 
 // Multi-select with search; value is stored comma-separated (client.state_allowed_to_operate).
-export function MultiSelect({ value, onChange, options, disabled }: {
+export function MultiSelect({ value, onChange, options, disabled, ariaLabel = 'Select options', placeholder = 'Select...' }: {
   value?: string; onChange: (v: string) => void; options: readonly string[]; disabled?: boolean;
+  ariaLabel?: string; placeholder?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
-  const selected = new Set((value ?? '').split(',').map(s => s.trim()).filter(Boolean));
-  const filtered = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+  const listboxId = useId();
+  const normalizedOptions = [...new Set(options)];
+  const selectedValues = (value ?? '').split(',').map(item => item.trim()).filter(Boolean);
+  const selected = new Set(selectedValues);
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const filtered = normalizedOptions.filter(option => option.toLocaleLowerCase().includes(normalizedSearch));
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const close = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false);
+    };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
-  const toggle = (o: string) => {
+  useEffect(() => {
+    if (!open) setSearch('');
+  }, [open]);
+
+  const toggle = (option: string) => {
     const next = new Set(selected);
-    if (next.has(o)) next.delete(o); else next.add(o);
-    onChange(options.filter(x => next.has(x)).join(', '));
+    if (next.has(option)) next.delete(option); else next.add(option);
+
+    // Preserve unknown legacy values so editing a valid state cannot erase existing data.
+    const known = normalizedOptions.filter(item => next.has(item));
+    const legacy = selectedValues.filter(item => !normalizedOptions.includes(item) && next.has(item));
+    onChange([...known, ...legacy].join(', '));
   };
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" className="fi" disabled={disabled} onClick={() => setOpen(o => !o)}
+      <button type="button" className="fi" disabled={disabled} onClick={() => setOpen(current => !current)}
+        aria-label={ariaLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={listboxId}
         style={{ width: '100%', textAlign: 'left', background: disabled ? undefined : '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: disabled ? 'default' : 'pointer' }}>
-        {selected.size ? `${selected.size} selected — ${[...selected].join(', ')}` : <span style={{ color: '#9ca3af' }}>Select...</span>}
+        {selected.size ? `${selected.size} selected — ${[...selected].join(', ')}` : <span style={{ color: '#9ca3af' }}>{placeholder}</span>}
       </button>
       {open && (
-        <div style={{ position: 'absolute', zIndex: 50, top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
-          <input className="fi" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)}
+        <div style={{ position: 'absolute', zIndex: 1000, top: '100%', left: 0, right: 0, minWidth: 300, background: '#fff', border: '1px solid #d1d5db', borderRadius: 4, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', marginTop: 2 }}>
+          <input className="fi" placeholder="Search states..." value={search} aria-label={`Search ${ariaLabel}`}
+            onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') setOpen(false); }}
             style={{ width: 'calc(100% - 12px)', margin: 6, boxSizing: 'border-box' }} autoFocus />
-          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-            {filtered.map(o => (
-              <label key={o} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 10px', fontSize: 13, cursor: 'pointer', background: selected.has(o) ? '#eff6ff' : undefined }}>
-                <input type="checkbox" checked={selected.has(o)} onChange={() => toggle(o)} style={{ accentColor: '#0B5AA0' }} /> {o}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 10px 6px', fontSize: 11, color: '#6b7280' }}>
+            <span>{normalizedOptions.length} states available</span>
+            {selected.size > 0 && (
+              <button type="button" onClick={() => onChange('')} style={{ border: 0, background: 'transparent', color: '#0B5AA0', cursor: 'pointer', padding: 0 }}>
+                Clear all
+              </button>
+            )}
+          </div>
+          <div id={listboxId} role="listbox" aria-label={ariaLabel} aria-multiselectable="true" style={{ maxHeight: 240, overflowY: 'auto' }}>
+            {filtered.map(option => (
+              <label key={option} role="option" aria-selected={selected.has(option)}
+                style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 10px', fontSize: 13, cursor: 'pointer', background: selected.has(option) ? '#eff6ff' : undefined }}>
+                <input type="checkbox" checked={selected.has(option)} onChange={() => toggle(option)} style={{ accentColor: '#0B5AA0' }} /> {option}
               </label>
             ))}
             {filtered.length === 0 && <div style={{ padding: 10, fontSize: 12, color: '#9ca3af' }}>No matches</div>}

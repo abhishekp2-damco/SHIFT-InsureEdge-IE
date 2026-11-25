@@ -118,7 +118,7 @@ function AddMembersModal({ users, selectedIds, onCancel, onSave }: {
                     background: selected ? '#f1f7fd' : '#f8f9fc', padding: '7px 8px', cursor: 'pointer',
                     display: 'flex', alignItems: 'center', gap: 8,
                   }}>
-                    <span aria-hidden="true" style={{
+                    <span aria-hidden="true" className="grid-avatar" style={{
                       width: 31, height: 31, flex: '0 0 31px', borderRadius: '50%', background: '#dff3ff', color: '#0B5AA0',
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600,
                     }}>{user.initials}</span>
@@ -198,7 +198,7 @@ export default function GroupMembersPanel({
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {selectedUsers.map(user => (
               <div key={user.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 260, border: '1px solid #d9dde4', background: '#f8f9fc', padding: '7px 9px' }}>
-                <span aria-hidden="true" style={{ width: 28, height: 28, borderRadius: '50%', background: '#dff3ff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>{user.initials}</span>
+                <span aria-hidden="true" className="grid-avatar" style={{ width: 28, height: 28, borderRadius: '50%', background: '#dff3ff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>{user.initials}</span>
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{user.fullName}</span>
                   <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 9, color: '#687386' }}>{user.email}</span>

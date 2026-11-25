@@ -564,7 +564,7 @@ export default function GroupListPage() {
                         </span>
                       ) : col.key === 'createdByName' ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{
+                          <span className="grid-avatar" style={{
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             width: 24, height: 24, borderRadius: '50%', background: '#dbeafe',
                             color: '#1d4ed8', fontSize: 10, fontWeight: 700, flexShrink: 0,

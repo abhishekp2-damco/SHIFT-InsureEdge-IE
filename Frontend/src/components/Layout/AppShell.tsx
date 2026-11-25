@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../../api/auth';
 import type { MyProfile } from '../../types/CurrentUser';
 import { isProducerPath, useIsProducer } from '../../hooks/useIsProducer';
+import { isParentRouteActive } from '../../utils/activeRoute';
 
 interface Props { children: React.ReactNode; }
 
@@ -34,15 +35,15 @@ const railLabels: Record<string, string> = {
 };
 
 const moduleNav = [
-  { label: 'Dashboard', icon: 'grid', to: '/dashboard' },
-  { label: 'Client Management', icon: 'building', to: '/client-management' },
-  { label: 'Quotes & Policies', icon: 'doc', to: '/quotes-policies/individual/nb-quotes' },
-  { label: 'Claims', icon: 'money', to: '/claims' },
-  { label: 'User Management', icon: 'user', to: '/users' },
-  { label: 'User Groups Management', icon: 'group', to: '/groups' },
-  { label: 'Distribution Management', icon: 'flow', to: '/distribution' },
-  { label: 'Billing Management', icon: 'list', to: '/billing' },
-  { label: 'Report Management', icon: 'chart', to: '/reports' },
+  { label: 'Dashboard', icon: 'grid', to: '/dashboard', activePath: '/dashboard' },
+  { label: 'Client Management', icon: 'building', to: '/client-management', activePath: '/client-management' },
+  { label: 'Quotes & Policies', icon: 'doc', to: '/quotes-policies/individual/nb-quotes', activePath: '/quotes-policies' },
+  { label: 'Claims', icon: 'money', to: '/claims', activePath: '/claims' },
+  { label: 'User Management', icon: 'user', to: '/users', activePath: '/users' },
+  { label: 'User Groups Management', icon: 'group', to: '/groups', activePath: '/groups' },
+  { label: 'Distribution Management', icon: 'flow', to: '/distribution', activePath: '/distribution' },
+  { label: 'Billing Management', icon: 'list', to: '/billing', activePath: '/billing' },
+  { label: 'Report Management', icon: 'chart', to: '/reports', activePath: '/reports' },
 ];
 
 function MenuIcon() {
@@ -91,6 +92,7 @@ export default function AppShell({ children }: Props) {
   const isBilling = location.pathname.startsWith('/billing');
   const isQuotesPolicies = location.pathname.startsWith('/quotes-policies');
   const isDashboard = location.pathname.startsWith('/dashboard');
+  const isReports = location.pathname.startsWith('/reports');
   const [moduleMenuOpen, setModuleMenuOpen] = useState(false);
   const [claimsPanelOpen, setClaimsPanelOpen] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -175,11 +177,11 @@ export default function AppShell({ children }: Props) {
       <div style={{ display: 'flex', height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
         <aside style={{ width: 52, background: '#f8fafc', borderRight: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 12, gap: 10 }}>
           {railIcons.map(type => {
-            const target = type === 'grid' ? '/dashboard' : type === 'money' ? '/claims' : type === 'group' ? '/groups' : type === 'building' ? '/client-management' : type === 'user' ? '/users' : type === 'flow' ? '/distribution' : type === 'list' ? '/billing' : type === 'doc' ? '/quotes-policies/individual/nb-quotes' : undefined;
+            const target = type === 'grid' ? '/dashboard' : type === 'money' ? '/claims' : type === 'group' ? '/groups' : type === 'building' ? '/client-management' : type === 'user' ? '/users' : type === 'flow' ? '/distribution' : type === 'list' ? '/billing' : type === 'doc' ? '/quotes-policies/individual/nb-quotes' : type === 'chart' ? '/reports' : undefined;
             // D1-25: producers only see Dashboard, Quotes & Policies and Claims.
             if (isProducer && (!target || !isProducerPath(target))) return null;
             const isUsers = location.pathname.startsWith('/users');
-            const active = (isDashboard && type === 'grid') || (isClaims && type === 'money') || (location.pathname.startsWith('/groups') && type === 'group') || (isClientMgmt && type === 'building') || (isUsers && type === 'user') || (isDistribution && type === 'flow') || (isBilling && type === 'list') || (isQuotesPolicies && type === 'doc');
+            const active = (isDashboard && type === 'grid') || (isClaims && type === 'money') || (location.pathname.startsWith('/groups') && type === 'group') || (isClientMgmt && type === 'building') || (isUsers && type === 'user') || (isDistribution && type === 'flow') || (isBilling && type === 'list') || (isQuotesPolicies && type === 'doc') || (isReports && type === 'chart');
             return <button key={type} title={railLabels[type]} aria-label={railLabels[type]} onClick={() => target && navigate(target)} style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2, background: active ? '#0B5AA0' : 'transparent', color: active ? '#fff' : '#2f3742' }}><RailIcon type={type} /></button>;
           })}
         </aside>
@@ -212,7 +214,7 @@ function ClaimsActionPanel({ currentPath, onCollapse }: { currentPath: string; o
       </div>
       <nav style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         {claimActions.map(action => {
-          const active = currentPath === action.to || (action.to === '/claims' && currentPath === '/claims');
+          const active = isParentRouteActive(currentPath, action.to, action.to === '/claims');
           return <Link key={action.label} to={action.to} style={{ display: 'block', padding: '9px 14px', minHeight: 34, borderRadius: 4, background: active ? '#d5effb' : '#e9eef3', color: active ? '#0065a8' : '#000', fontSize: 13, fontWeight: active ? 700 : 500, textDecoration: 'none' }}>{action.label}</Link>;
         })}
       </nav>
@@ -244,7 +246,7 @@ function ModuleDrawer({ currentPath, isProducer, onClose }: { currentPath: strin
         </div>
         <nav style={{ padding: '0 10px', display: 'grid', gap: 8 }}>
           {items.map(item => {
-            const active = currentPath.startsWith(item.to) || (item.to === '/reports' && false);
+            const active = isParentRouteActive(currentPath, item.activePath);
             return <Link key={item.label} to={item.to} onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: 12, height: 34, padding: '0 10px', borderRadius: 3, background: active ? '#0B5AA0' : item.label === 'Report Management' ? '#e6f6ff' : 'transparent', color: active ? '#fff' : item.label === 'Report Management' ? '#2c678b' : '#374151', fontSize: 14, fontWeight: active ? 700 : 500, textDecoration: 'none' }}>
               <RailIcon type={item.icon} />
               <span>{item.label}</span>

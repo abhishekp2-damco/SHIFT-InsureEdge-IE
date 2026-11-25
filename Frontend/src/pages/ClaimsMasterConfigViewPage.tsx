@@ -224,7 +224,7 @@ export default function ClaimsMasterConfigViewPage() {
               ) : !data || data.values.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ ...TD, textAlign: 'center', color: '#94a3b8', padding: 40 }}>
-                    No records found.
+                    No Data Available
                   </td>
                 </tr>
               ) : data.values.map((v, i) => (

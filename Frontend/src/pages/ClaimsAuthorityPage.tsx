@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { claimsApi } from '../api/claims';
 import type { ClaimAuthorityDto } from '../types/Claim';
 import { useSessionState } from '../hooks/useSessionState';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -197,6 +198,7 @@ export default function ClaimsAuthorityPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set(ALL_COLS.map(c => c.key)));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(ALL_COLS.map(c => c.key));
   const [showColPanel, setShowColPanel] = useState(false);
   const [colPanelRect, setColPanelRect] = useState<DOMRect | null>(null);
   const [activeFilter, setActiveFilter] = useState<ColKey | null>(null);
@@ -233,7 +235,7 @@ export default function ClaimsAuthorityPage() {
   const total = allData.length;
   const active = allData.filter(r => r.authorityStatus === 'Active').length;
   const inactive = allData.filter(r => r.authorityStatus === 'Inactive').length;
-  const visibleColDefs = ALL_COLS.filter(c => visibleCols.has(c.key));
+  const visibleColDefs = colOrder.map(key => ALL_COLS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
 
   function applyFilter(key: ColKey, values: string[]) {
     setColumnFilters(prev => ({ ...prev, [key]: values }));
@@ -337,7 +339,7 @@ export default function ClaimsAuthorityPage() {
                 <th style={{ ...TH, width: 80 }}>Action</th>
                 {/* Data columns */}
                 {visibleColDefs.map(col => (
-                  <th key={col.key} style={{ ...TH }}>
+                  <th {...headerProps(col.key)} key={col.key} style={{ ...TH, cursor: 'grab', opacity: draggingCol === col.key ? 0.55 : 1 }}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       {col.label}
                       <span
@@ -383,7 +385,7 @@ export default function ClaimsAuthorityPage() {
                     <td key={col.key} style={{ ...TD }}>
                       {col.key === 'userName' ? (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
+                          <span className="grid-avatar" style={{
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             width: 26, height: 26, borderRadius: '50%',
                             background: idx % 2 === 0 ? '#0B5AA0' : '#009765',

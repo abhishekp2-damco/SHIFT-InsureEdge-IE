@@ -284,7 +284,9 @@ public class BulkUploadService
         var form = new Dictionary<string, object?>
         {
             // Primary insured (synced onto Account/Policy by SubmissionRepository)
-            ["insuredType"] = isIndividual ? "Individual" : "Business",
+            // Keep the precise approved Excel value for display in Policy Information.
+            // Persistence separately classifies organization values as Business for lists.
+            ["insuredType"] = typeOfPrimaryInsured,
             ["firstName"] = firstName,
             ["middleName"] = Get(BulkUploadColumns.MiddleName),
             ["lastName"] = lastName,
@@ -298,6 +300,10 @@ public class BulkUploadService
             // This template is product-specific (E&S Homeowners) — there's no LOB/SubProduct
             // column because the whole file only ever creates that one product's submissions.
             ["lob"] = "E&S Homeowners",
+            ["subProduct"] = "SuperPerils",
+            // HexCat owns approval. A newly uploaded row has not gone through that
+            // process yet, so its approval status must remain empty.
+            ["approvalStatus"] = null,
 
             // Risk/property address (also used for policy_product.state)
             ["locationSameAsMailing"] = riskIsSame,

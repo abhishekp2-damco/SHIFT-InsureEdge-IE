@@ -160,6 +160,22 @@ public class ProducerService(
         return await CreateLinkedUserAsync(producer);
     }
 
+    // Used by both producer creation routes. Idempotent so a retried save or an edit can
+    // repair a producer record that was committed before its login account was created.
+    public async Task<(bool Success, string? Error)> EnsureLinkedUserAsync(long producerId)
+    {
+        var producer = await db.Producers.FirstOrDefaultAsync(p =>
+            p.Id == producerId && p.ClientId == tenant.ClientId);
+        if (producer == null) return (false, "Producer not found.");
+        if (string.IsNullOrWhiteSpace(producer.Email))
+            return (false, "Producer has no email on file.");
+
+        var linkedUser = await db.Users.FirstOrDefaultAsync(u => u.ProducerId == producerId);
+        if (linkedUser != null) return (true, null);
+
+        return await CreateLinkedUserAsync(producer);
+    }
+
     // Creates the Producer's linked external-user login: a "user" row seeded with the
     // PRODUCER_DEFAULT_PASSWORD (so the Producer can log in immediately even if the
     // onboarding email below never arrives — e.g. SMTP not configured in this
@@ -173,10 +189,22 @@ public class ProducerService(
     // half-invited state — nothing to roll back.
     private async Task<(bool Success, string? Error)> CreateLinkedUserAsync(Producer producer)
     {
+        var normalizedEmail = producer.Email?.Trim();
+        if (string.IsNullOrWhiteSpace(normalizedEmail))
+            return (false, "Producer has no email on file.");
+
+        var existingLinkedUser = await db.Users.FirstOrDefaultAsync(u => u.ProducerId == producer.Id);
+        if (existingLinkedUser != null) return (true, null);
+
+        var emailInUse = await db.Users.AnyAsync(u =>
+            u.ClientId == producer.ClientId && u.Email.ToLower() == normalizedEmail.ToLower());
+        if (emailInUse)
+            return (false, "A login account already uses this email address for this client.");
+
         var group = await db.Groups.FirstOrDefaultAsync(g => g.GroupName == "Producers" && g.ClientId == tenant.ClientId);
         if (group == null) return (false, "\"Producers\" permission group is not set up for this client.");
 
-        var defaultPassword = config["PRODUCER_DEFAULT_PASSWORD"] ?? "Producer@123";
+        var defaultPassword = ResolveDefaultPassword(config["PRODUCER_DEFAULT_PASSWORD"]);
 
         var fullName = $"{producer.FirstName} {producer.LastName}".Trim();
         var user = new User
@@ -185,7 +213,7 @@ public class ProducerService(
             ProducerId = producer.Id,
             FirstName = producer.FirstName,
             LastName = producer.LastName,
-            Email = producer.Email!,
+            Email = normalizedEmail,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(defaultPassword),
             IsActive = true,
             CreatedOn = DateTime.UtcNow,
@@ -214,6 +242,9 @@ public class ProducerService(
 
         return (true, null);
     }
+
+    internal static string ResolveDefaultPassword(string? configuredPassword) =>
+        string.IsNullOrWhiteSpace(configuredPassword) ? "Producer@123" : configuredPassword;
 
     private async Task<string> NextCodeAsync()
     {

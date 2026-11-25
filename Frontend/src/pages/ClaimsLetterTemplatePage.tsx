@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { letterTemplatesApi, LetterTemplateListItem } from '../api/letterTemplates';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 type ColKey = 'templateCode' | 'templateName' | 'templateCategory' | 'lineOfBusiness' | 'versionNo' | 'effectiveDateFrom' | 'effectiveDateTo';
 
@@ -75,6 +76,7 @@ export default function ClaimsLetterTemplatePage() {
   const [searchInput, setSearchInput]   = useState('');
   const [search, setSearch]             = useState('');
   const [visibleCols, setVisibleCols]   = useState<Set<ColKey>>(new Set(COLUMNS.map(c => c.key)));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(COLUMNS.map(c => c.key));
   const [draft, setDraft]               = useState<FiltersMap>(makeFilters);
   const [active, setActive]             = useState<FiltersMap>(makeFilters);
 
@@ -87,7 +89,7 @@ export default function ClaimsLetterTemplatePage() {
   const filterRef   = useRef<HTMLDivElement>(null);
   const colPanelRef = useRef<HTMLDivElement>(null);
 
-  const { data = [], isLoading, isError, refetch, isFetching } = useQuery({
+  const { data = [], isLoading, isFetching } = useQuery({
     queryKey: ['letter-templates', search],
     queryFn: () => letterTemplatesApi.getList(search || undefined),
     staleTime: 0,
@@ -106,7 +108,7 @@ export default function ClaimsLetterTemplatePage() {
   }, [filterOpen, colPanelOpen]);
 
   const filtered = data.filter(row => COLUMNS.every(col => rowPasses(row, col.key, active[col.key])));
-  const visibleList = COLUMNS.filter(c => visibleCols.has(c.key));
+  const visibleList = colOrder.map(key => COLUMNS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
 
   function openFilter(key: ColKey, e: React.MouseEvent) {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -189,7 +191,7 @@ export default function ClaimsLetterTemplatePage() {
               <th style={{ ...TH, width: 90 }}>Action</th>
               {/* Data columns */}
               {visibleList.map(col => (
-                <th key={col.key} style={{ ...TH, whiteSpace: 'nowrap' }}>
+                <th {...headerProps(col.key)} key={col.key} style={{ ...TH, whiteSpace: 'nowrap', cursor: 'grab', opacity: draggingCol === col.key ? 0.55 : 1 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
                     <span>{col.label}</span>
                     <span
@@ -205,11 +207,6 @@ export default function ClaimsLetterTemplatePage() {
           <tbody>
             {isLoading ? (
               <tr><td colSpan={totalCols} style={{ ...TD, textAlign: 'center', padding: '40px', color: '#888' }}>Loading...</td></tr>
-            ) : isError ? (
-              <tr><td colSpan={totalCols} style={{ ...TD, textAlign: 'center', padding: '40px' }}>
-                <div style={{ color: '#e53935', marginBottom: '10px' }}>Failed to load templates. Check your connection or try refreshing.</div>
-                <button onClick={() => refetch()} style={{ padding: '6px 16px', border: '1px solid #1565c0', borderRadius: '4px', background: '#fff', color: '#1565c0', cursor: 'pointer', fontSize: '13px' }}>Retry</button>
-              </td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={totalCols} style={{ ...TD, textAlign: 'center', padding: '40px', color: '#888' }}>No Data Available</td></tr>
             ) : filtered.map((row, idx) => (

@@ -971,7 +971,7 @@ function personName(row: WorkflowPersonDto) {
 
 function personColumns(label: string): WorkflowGridColumn<WorkflowPersonDto>[] {
   return [
-    { key: 'name', label, value: personName, render: row => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span style={{ width: 28, height: 28, borderRadius: '50%', background: '#cfedff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>{initialsFrom(personName(row))}</span>{personName(row)}</span> },
+    { key: 'name', label, value: personName, render: row => <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><span className="grid-avatar" style={{ width: 28, height: 28, borderRadius: '50%', background: '#cfedff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>{initialsFrom(personName(row))}</span>{personName(row)}</span> },
     { key: 'relationship', label: 'Relationship with the Insured', value: row => emptyText(row.relationshipWithInsured) },
     { key: 'telephone', label: 'Telephone Number', value: row => fv.formatPhoneView(row.telephoneNumber) || '-' },
     { key: 'email', label: 'Email', value: row => emptyText(row.emailId) },
@@ -2781,7 +2781,7 @@ function PayeeContent({ claimId }: { claimId: number }) {
                 </td>
                 <td style={{ ...TD }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 28, height: 28, borderRadius: '50%', background: row.avatarColor, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{row.initials}</span>
+                    <span className="grid-avatar" style={{ width: 28, height: 28, borderRadius: '50%', background: row.avatarColor, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{row.initials}</span>
                     <span style={{ color: '#005da8', fontWeight: 600 }}>{row.payeeName}</span>
                   </span>
                 </td>

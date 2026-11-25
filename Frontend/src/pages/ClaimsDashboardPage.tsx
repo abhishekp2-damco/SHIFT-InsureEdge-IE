@@ -403,14 +403,14 @@ export default function ClaimsDashboardPage() {
           <tbody>
             {agingRows.length === 0 && (
               <tr>
-                <td colSpan={11} style={{ padding: '20px 8px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No open claims</td>
+                <td colSpan={11} style={{ padding: '20px 8px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No Data Available</td>
               </tr>
             )}
             {agingRows.map(row => (
               <tr key={row.index} style={{ borderTop: '1px solid #edf1f5' }}>
                 <td style={{ padding: '12px 8px', textAlign: 'center' }}>{row.index}</td>
                 <td style={{ padding: '12px 8px' }}>
-                  <span style={{ display: 'inline-flex', width: 26, height: 26, borderRadius: '50%', background: '#d9f2ff', color: '#0B5AA0', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{row.initials}</span>
+                  <span className="grid-avatar" style={{ display: 'inline-flex', width: 26, height: 26, borderRadius: '50%', background: '#d9f2ff', color: '#0B5AA0', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{row.initials}</span>
                 </td>
                 <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>{row.user_name}</td>
                 <td />
@@ -447,7 +447,7 @@ export default function ClaimsDashboardPage() {
                 <div style={{ width: 32, height: 32, border: '3px solid #dbe6f2', borderTopColor: '#0B5AA0', borderRadius: '50%', animation: 'cd-spin 0.8s linear infinite' }} />
               </div>
             );
-            const empty = <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b', fontSize: 14 }}>No data to display</div>;
+            const empty = <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b', fontSize: 14 }}>No Data Available</div>;
             const MonthDropdown = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
               <div style={{ marginBottom: 18 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}><span style={{ color: '#e12b2b' }}>* </span>Select Month</label>

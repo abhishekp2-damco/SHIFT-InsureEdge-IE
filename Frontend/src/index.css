@@ -8497,3 +8497,22 @@ span.ap-th-lbl { cursor: default; }
     border-bottom: 1px solid #e2e5e9;
   }
 }
+/* Shared initials avatar for every data-grid name cell. Keep this aligned with
+   the Quotes & Policies register avatar instead of deriving colors per row. */
+.grid-avatar,
+.dashboard-avatar,
+.qp-scope .insured-avatar {
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 50% !important;
+  background: #7fc1e2 !important;
+  color: #003b5c !important;
+  -webkit-text-fill-color: #003b5c !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  font-size: 9px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+}

@@ -121,6 +121,17 @@ public class InsureEdgeDbContext : DbContext
     public DbSet<Audit> Audits => Set<Audit>();
     public DbSet<DashboardPreference> DashboardPreferences => Set<DashboardPreference>();
     public DbSet<PolicyConfigurationRequestedBy> PolicyConfigurationRequestedBys => Set<PolicyConfigurationRequestedBy>();
+    // Report Management
+    public DbSet<ReportGroup> ReportGroups => Set<ReportGroup>();
+    public DbSet<ReportItem> ReportItems => Set<ReportItem>();
+    public DbSet<ReportCard> ReportCards => Set<ReportCard>();
+    public DbSet<StoredReportFile> StoredReportFiles => Set<StoredReportFile>();
+    public DbSet<ReportFile> ReportFiles => Set<ReportFile>();
+    public DbSet<ReportDefinition> ReportDefinitions => Set<ReportDefinition>();
+    public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+    public DbSet<GeneratedReport> GeneratedReports => Set<GeneratedReport>();
+    public DbSet<ReportRecentActivity> ReportRecentActivities => Set<ReportRecentActivity>();
+    public DbSet<ReportRunLog> ReportRunLogs => Set<ReportRunLog>();
 
     // ── Claim Reference Data ──────────────────────────────────────────────────────────
     public DbSet<ClaimInitiationChannel> ClaimInitiationChannels => Set<ClaimInitiationChannel>();
@@ -132,6 +143,64 @@ public class InsureEdgeDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<ReportGroup>(e =>
+        {
+            e.ToTable("report_group"); e.HasKey(x => x.Id); e.Property(x => x.Name).HasMaxLength(80).IsRequired();
+            e.HasIndex(x => x.Name).IsUnique();
+        });
+        modelBuilder.Entity<ReportItem>(e =>
+        {
+            e.ToTable("report_item"); e.HasKey(x => x.Id); e.Property(x => x.Code).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Label).HasMaxLength(160).IsRequired(); e.Property(x => x.PageTitle).HasMaxLength(180).IsRequired();
+            e.Property(x => x.ItemType).HasMaxLength(20).IsRequired(); e.Property(x => x.RoleVisibility).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => x.Code).IsUnique(); e.HasOne(x => x.Group).WithMany(x => x.Items).HasForeignKey(x => x.GroupId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<ReportCard>(e =>
+        {
+            e.ToTable("report_card"); e.HasKey(x => x.Id); e.Property(x => x.ReportCode).HasMaxLength(60).IsRequired();
+            e.Property(x => x.Title).HasMaxLength(180).IsRequired(); e.Property(x => x.DefaultReportName).HasMaxLength(180).IsRequired();
+            e.HasIndex(x => x.ReportCode).IsUnique(); e.HasOne(x => x.Item).WithMany(x => x.Cards).HasForeignKey(x => x.ItemId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<StoredReportFile>(e =>
+        {
+            e.ToTable("stored_report_file"); e.HasKey(x => x.Id); e.Property(x => x.FileName).HasMaxLength(255).IsRequired();
+            e.Property(x => x.MimeType).HasMaxLength(150).IsRequired();
+        });
+        modelBuilder.Entity<ReportFile>(e =>
+        {
+            e.ToTable("report_file"); e.HasKey(x => x.Id); e.Property(x => x.ReportName).HasMaxLength(255).IsRequired();
+            e.Property(x => x.IssuingCarrier).HasMaxLength(200); e.HasIndex(x => new { x.ClientId, x.ItemId, x.ReportingPeriod });
+            e.HasOne(x => x.Item).WithMany().HasForeignKey(x => x.ItemId); e.HasOne(x => x.StoredFile).WithMany().HasForeignKey(x => x.StoredFileId).OnDelete(DeleteBehavior.SetNull);
+        });
+        modelBuilder.Entity<ReportDefinition>(e =>
+        {
+            e.ToTable("report_definition"); e.HasKey(x => x.Id); e.Property(x => x.ReportName).HasMaxLength(180).IsRequired();
+            e.Property(x => x.DateCriteria).HasMaxLength(40); e.Property(x => x.FiltersJson).HasColumnType("jsonb").IsRequired();
+            e.Property(x => x.Status).HasMaxLength(20).IsRequired(); e.HasIndex(x => new { x.ClientId, x.CardId, x.Status });
+            e.HasOne(x => x.Card).WithMany().HasForeignKey(x => x.CardId); e.HasOne(x => x.Schedule).WithOne(x => x.Definition).HasForeignKey<ReportSchedule>(x => x.DefinitionId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<ReportSchedule>(e =>
+        {
+            e.ToTable("report_schedule"); e.HasKey(x => x.Id); e.Property(x => x.ScheduleType).HasMaxLength(20).IsRequired();
+            e.Property(x => x.Frequency).HasMaxLength(20); e.Property(x => x.DeliveryMethod).HasMaxLength(20).IsRequired(); e.Property(x => x.Status).HasMaxLength(20).IsRequired();
+            e.HasIndex(x => new { x.Status, x.NextRunDate });
+        });
+        modelBuilder.Entity<GeneratedReport>(e =>
+        {
+            e.ToTable("generated_report"); e.HasKey(x => x.Id); e.HasIndex(x => new { x.ClientId, x.CardId, x.CreatedOn });
+            e.HasOne(x => x.Definition).WithMany().HasForeignKey(x => x.DefinitionId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(x => x.Card).WithMany().HasForeignKey(x => x.CardId); e.HasOne(x => x.StoredFile).WithMany().HasForeignKey(x => x.StoredFileId);
+        });
+        modelBuilder.Entity<ReportRecentActivity>(e =>
+        {
+            e.ToTable("report_recent_activity"); e.HasKey(x => x.Id); e.Property(x => x.Action).HasMaxLength(20).IsRequired();
+            e.Property(x => x.TargetType).HasMaxLength(30).IsRequired(); e.Property(x => x.TargetName).HasMaxLength(255).IsRequired(); e.HasIndex(x => new { x.ClientId, x.UserId, x.OccurredOn });
+        });
+        modelBuilder.Entity<ReportRunLog>(e =>
+        {
+            e.ToTable("report_run_log"); e.HasKey(x => x.Id); e.Property(x => x.Status).HasMaxLength(20).IsRequired(); e.HasIndex(x => new { x.DefinitionId, x.StartedOn });
+        });
 
         // Group â€” table is "group" (singular, reserved word)
         modelBuilder.Entity<Group>(e =>

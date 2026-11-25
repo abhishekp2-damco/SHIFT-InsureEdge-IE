@@ -408,7 +408,7 @@ export default function ClaimsAuthorityAddUserPage() {
                       <td key={col.key} style={{ ...TD }}>
                         {col.key === 'fullName' ? (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{
+                            <span className="grid-avatar" style={{
                               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                               width: 26, height: 26, borderRadius: '50%',
                               background: idx % 2 === 0 ? '#0B5AA0' : '#009765',

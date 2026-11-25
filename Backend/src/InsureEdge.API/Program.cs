@@ -97,6 +97,7 @@ builder.Services.AddScoped<InsureEdge.Infrastructure.Services.IntermediaryServic
 builder.Services.AddScoped<InsureEdge.Infrastructure.Services.ProducerService>();
 builder.Services.AddScoped<InsureEdge.Infrastructure.Services.IntermediaryScreenPermissionService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
+builder.Services.AddScoped<IReportManagementService, ReportManagementService>();
 
 // --- Background Jobs (Timer equivalent to OutSystems BPT) ---
 builder.Services.AddScoped<AutoRenewalTimerJob>();
@@ -110,6 +111,7 @@ builder.Services.AddScoped<InsureEdge.Infrastructure.BackgroundJobs.Intermediary
 builder.Services.AddScoped<InsureEdge.Infrastructure.BackgroundJobs.IIntermediaryCommissionDisburseTimerJob>(
     services => services.GetRequiredService<InsureEdge.Infrastructure.BackgroundJobs.IntermediaryCommissionDisburseTimerJob>());
 builder.Services.AddHostedService<InsureEdge.Infrastructure.BackgroundJobs.IntermediaryCommissionDisburseHostedService>();
+builder.Services.AddHostedService<InsureEdge.Infrastructure.BackgroundJobs.ReportScheduleHostedService>();
 
 // LenderDock: mortgagee bill/coverage notifications for Endorsement, Cancellation, and
 // Cancel/Rewrite (ported from OutSystems NotifyLenderDockFor*). See
@@ -173,6 +175,10 @@ builder.Services.AddCors(opts =>
           .AllowCredentials())); // credentials required for cookie auth
 
 var app = builder.Build();
+
+// Additive, idempotent Report Management schema/catalog bootstrap. The SQL is embedded so
+// local, published and container deployments use the same reviewed migration.
+await InsureEdge.API.Services.ReportManagementDatabaseBootstrap.ApplyAsync(app.Services);
 
 app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
 {

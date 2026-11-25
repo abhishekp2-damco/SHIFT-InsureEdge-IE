@@ -203,7 +203,7 @@ function OfficeCard({ office, onView, onEdit, onDelete }: { office: OfficeDto; o
       )}
       <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 10 }}>{office.officeName}</div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 10 }}>
-        <span style={{ width: 32, height: 32, borderRadius: '50%', background: '#e0f2fe', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{initial}</span>
+        <span className="grid-avatar" style={{ width: 32, height: 32, borderRadius: '50%', background: '#e0f2fe', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>{initial}</span>
         <div style={{ minWidth: 0, fontSize: 11, color: '#374151', lineHeight: 1.45 }}>
           <div style={{ fontWeight: 600, color: '#111827' }}>{office.contactName || '-'}</div>
           <div>{office.contactTitle || '-'}</div>

@@ -9,6 +9,7 @@ import { ColPanel } from './GridHelpers';
 import type { NbQuoteListItemDto, NbQuotesKpiDto } from '../../types/Policy';
 import type { MyProfile } from '../../types/CurrentUser';
 import { useSessionState } from '../../hooks/useSessionState';
+import { useColumnOrder } from '../../hooks/useColumnOrder';
 
 // ── Column definitions (for Modify Columns Display) ───────────────────────────
 const COL_DEFS = [
@@ -308,6 +309,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
   // Column visibility
   const defaultCols = Object.fromEntries(COL_DEFS.map(c => [c.key, true])) as ColVisibility;
   const [visibleCols, setVisibleCols] = useState<ColVisibility>(defaultCols);
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(COL_DEFS.map(c => c.key));
   const [colPanelAnchor, setColPanelAnchor] = useState<{ top: number; left: number } | null>(null);
   const colTriggerRef = useRef<HTMLDivElement>(null);
 
@@ -322,7 +324,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
   const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [profile, setProfile] = useState<MyProfile | null>(null);
   const navigate = useNavigate();
-  const label = insuredType === 'individual' ? 'Individual' : 'Business';
+  const label = insuredType === 'all' ? '' : insuredType === 'individual' ? 'Individual' : 'Business';
 
   // Load user profile to check if Producer
   useEffect(() => {
@@ -473,7 +475,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
     const isOpen    = filterOpen?.col === col;
     const sortDir   = sort?.col === col ? sort.dir : null;
     return (
-      <th className={hasFilter ? 'th-filtered' : ''}>
+      <th {...headerProps(col as ColKey)} className={`${hasFilter ? 'th-filtered ' : ''}${draggingCol === col ? 'column-dragging' : ''}`.trim()}>
         <div className="th-inner">
           <span
             className="th-sortable"
@@ -499,9 +501,26 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
     );
   }
 
+  const orderedVisibleCols = colOrder.filter(key => visibleCols[key]);
+
+  function renderQuoteCell(quote: Quote, col: ColKey) {
+    switch (col) {
+      case 'id': return <td key={col} className="mono">{quote.id}</td>;
+      case 'insuredName': return <td key={col}><div className="insured-cell"><div className="insured-avatar" style={{ background: avatarColor(quote.insuredName) }}>{initials(quote.insuredName)}</div><span className="insured-name">{quote.insuredName}</span></div></td>;
+      case 'lob': return <td key={col}>{quote.lob}</td>;
+      case 'effectiveDate': return <td key={col}>{quote.effectiveDate}</td>;
+      case 'premiumEstimate': return <td key={col}>{quote.premiumEstimate != null ? `$${quote.premiumEstimate.toLocaleString()}` : <span style={{ color: '#9ca3af' }}>—</span>}</td>;
+      case 'createdAt': return <td key={col}>{quote.createdAt}</td>;
+      case 'approvalStatus': return <td key={col}>{quote.approvalStatus === 'Approved' && <span className="approval-approved">● Approved</span>}{quote.approvalStatus === 'Not Approved' && <span className="approval-not-approved">● Not Approved</span>}</td>;
+      case 'lastUpdated': return <td key={col}>{quote.lastUpdated}</td>;
+      case 'status': return <td key={col}><span className={`badge badge-${(quote.status || 'draft').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{quote.status}</span></td>;
+      case 'state': return <td key={col}>{quote.state}</td>;
+    }
+  }
+
   return (
     <div className="page-content">
-      <div className="page-title">{label} — New Business Quotes</div>
+      <div className="page-title">{label ? `${label} — ` : ''}New Business Quotes</div>
 
       {/* ── KPI Stats Row ── */}
       <div className="kpi-stats-row">
@@ -548,7 +567,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
               <button
                 className="btn btn-primary"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '8px 16px' }}
-                onClick={() => navigate(`/quotes-policies/submissions/new?landing=1&insuredType=${insuredType}`)}
+                onClick={() => navigate(`/quotes-policies/submissions/new?landing=1&insuredType=${insuredType === 'business' ? 'business' : 'individual'}`)}
               >
                 New Submission
               </button>
@@ -620,16 +639,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
                 </th>
                 <th style={{ width: 28 }}><input type="checkbox" /></th>
                 <th style={{ width: 52 }}><div className="th-inner">Action</div></th>
-                {visibleCols.id              && <Th col="id"              lbl="Quote Number" />}
-                {visibleCols.insuredName     && <Th col="insuredName"     lbl="Insured Name" />}
-                {visibleCols.lob             && <Th col="lob"             lbl="LOB" />}
-                {visibleCols.effectiveDate   && <Th col="effectiveDate"   lbl="Effective Date" />}
-                {visibleCols.premiumEstimate && <Th col="premiumEstimate" lbl="Premium Estimate" />}
-                {visibleCols.createdAt       && <Th col="createdAt"       lbl="Creation Date" />}
-                {visibleCols.approvalStatus  && <Th col="approvalStatus"  lbl="Approval Status" />}
-                {visibleCols.lastUpdated     && <Th col="lastUpdated"     lbl="Last Updated" />}
-                {visibleCols.status          && <Th col="status"          lbl="Status" />}
-                {visibleCols.state           && <Th col="state"           lbl="State" />}
+                {orderedVisibleCols.map(col => <Th key={col} col={col} lbl={COL_DEFS.find(def => def.key === col)!.label} />)}
               </tr>
             </thead>
             <tbody>
@@ -652,37 +662,7 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
                       </button>
                     </div>
                   </td>
-                  {visibleCols.id          && <td className="mono">{q.id}</td>}
-                  {visibleCols.insuredName && (
-                    <td>
-                      <div className="insured-cell">
-                        <div className="insured-avatar" style={{ background: avatarColor(q.insuredName) }}>
-                          {initials(q.insuredName)}
-                        </div>
-                        <span className="insured-name">{q.insuredName}</span>
-                      </div>
-                    </td>
-                  )}
-                  {visibleCols.lob             && <td>{q.lob}</td>}
-                  {visibleCols.effectiveDate   && <td>{q.effectiveDate}</td>}
-                  {visibleCols.premiumEstimate && <td>{q.premiumEstimate != null ? `$${q.premiumEstimate.toLocaleString()}` : <span style={{ color: '#9ca3af' }}>—</span>}</td>}
-                  {visibleCols.createdAt       && <td>{q.createdAt}</td>}
-                  {visibleCols.approvalStatus  && (
-                    <td>
-                      {q.approvalStatus === 'Approved'     && <span className="approval-approved">● Approved</span>}
-                      {q.approvalStatus === 'Not Approved' && <span className="approval-not-approved">● Not Approved</span>}
-                      {!q.approvalStatus                  && <span style={{ color: '#9ca3af' }}>—</span>}
-                    </td>
-                  )}
-                  {visibleCols.lastUpdated && <td>{q.lastUpdated}</td>}
-                  {visibleCols.status      && (
-                    <td>
-                      <span className={`badge badge-${(q.status || 'draft').toLowerCase().replace(/\s+/g, '-')}`}>
-                        <span className="badge-dot" />{q.status}
-                      </span>
-                    </td>
-                  )}
-                  {visibleCols.state && <td>{q.state}</td>}
+                  {orderedVisibleCols.map(col => renderQuoteCell(q, col))}
                 </tr>
               ))}
             </tbody>

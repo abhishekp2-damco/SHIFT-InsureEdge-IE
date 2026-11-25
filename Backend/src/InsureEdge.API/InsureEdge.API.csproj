@@ -21,5 +21,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Templates\E&amp;S Homeowners Insurance Products Upload Template.xlsx"
                       LogicalName="InsureEdge.API.Templates.BulkUploadTemplate.xlsx" />
+    <EmbeddedResource Include="..\..\db\050_report_management.sql"
+                      LogicalName="InsureEdge.API.Database.050_report_management.sql" />
   </ItemGroup>
 </Project>

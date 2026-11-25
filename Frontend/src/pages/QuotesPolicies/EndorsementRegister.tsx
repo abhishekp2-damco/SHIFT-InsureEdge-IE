@@ -10,6 +10,7 @@ import {
 import { quotesPoliciesApi } from '../../api/quotesPolicies';
 import type { EndorsementListItemDto, EndorsementsKpiDto } from '../../types/Policy';
 import { useSessionState } from '../../hooks/useSessionState';
+import { useColumnOrder } from '../../hooks/useColumnOrder';
 
 type Endorsement = EndorsementListItemDto;
 type Kpis = EndorsementsKpiDto;
@@ -30,20 +31,23 @@ const ALL_LABELS: Record<string, string> = {
 };
 
 type ColKey = typeof COL_DEFS[number]['key'];
+type GridColKey = ColKey | 'insuredName' | 'status';
+const GRID_COLS: GridColKey[] = ['id', 'policyNumber', 'insuredName', 'lob', 'policyEffectiveDate', 'transactionEffectiveDate', 'premiumImpact', 'createdAt', 'status'];
 type ColVisibility = Record<ColKey, boolean>;
 const DEFAULT_VIS = Object.fromEntries(COL_DEFS.map(c => [c.key, true])) as ColVisibility;
 const PAGE_SIZES = [10, 25, 50] as const;
 
-function Th({ col, label, sort, onSort, filters, onFilterClick, filterPopup }: {
+function Th({ col, label, sort, onSort, filters, onFilterClick, filterPopup, dragProps }: {
   col: string; label: string; sort: SortState | null;
   onSort: (col: string) => void; filters: AppliedFilters;
   onFilterClick: (col: string, e: React.MouseEvent) => void;
   filterPopup: { col: string } | null;
+  dragProps?: React.ThHTMLAttributes<HTMLTableCellElement>;
 }) {
   const has = !!filters[col];
   const isSort = sort?.col === col;
   return (
-    <th className={has ? 'th-filtered' : ''}>
+    <th {...dragProps} className={`${has ? 'th-filtered ' : ''}${dragProps?.className ?? ''}`.trim()}>
       <div className="th-inner">
         <span className="th-label" style={{ color: has ? '#1a3b6b' : undefined, cursor: 'pointer' }} onClick={() => onSort(col)}>
           {label}{isSort && <span className="sort-arrow">{sort!.dir === 'asc' ? ' ↑' : ' ↓'}</span>}
@@ -72,6 +76,7 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
   const [colPanelOpen, setColPanelOpen]   = useState(false);
   const [colPanelAnchor, setColPanelAnchor] = useState({ top: 0, left: 0 });
   const colBtnRef = useRef<HTMLButtonElement>(null);
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<GridColKey>(GRID_COLS);
 
   useEffect(() => {
     quotesPoliciesApi.getEndorsementsKpis(insuredType).then(setKpis);
@@ -152,6 +157,21 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
     for (let i = Math.max(1, page - delta); i <= Math.min(totalPages, page + delta); i++) nums.push(i);
     return nums.map(n => <button key={n} className={`page-btn${n === page ? ' active' : ''}`} onClick={() => setPage(n)}>{n}</button>);
   }
+  const orderedVisibleCols = colOrder.filter(col => col === 'insuredName' || col === 'status' || visibleCols[col]);
+
+  function renderEndorsementCell(row: Endorsement, col: GridColKey) {
+    switch (col) {
+      case 'id': return <td key={col} className="mono">{row.id}</td>;
+      case 'policyNumber': return <td key={col} className="mono" style={{ color: '#1a3b6b' }}>{row.policyNumber}</td>;
+      case 'insuredName': return <td key={col}><div className="insured-cell"><div className="insured-avatar" style={{ background: avatarColor(row.insuredName) }}>{initials(row.insuredName)}</div><span className="insured-name">{row.insuredName}</span></div></td>;
+      case 'lob': return <td key={col}>{row.lob}</td>;
+      case 'policyEffectiveDate': return <td key={col}>{row.policyEffectiveDate}</td>;
+      case 'transactionEffectiveDate': return <td key={col}>{row.transactionEffectiveDate}</td>;
+      case 'premiumImpact': return <td key={col} style={{ textAlign: 'right' }}>{row.premiumImpact != null ? `$${Number(row.premiumImpact).toLocaleString()}` : <span style={{ color: '#9ca3af' }}>-</span>}</td>;
+      case 'createdAt': return <td key={col}>{row.createdAt}</td>;
+      case 'status': return <td key={col}><span className={`badge badge-${(row.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{row.status}</span></td>;
+    }
+  }
 
   return (
     <div className="page-content">
@@ -221,15 +241,7 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
                 </th>
                 <th style={{ width: 28 }}></th>
                 <th>Action</th>
-                {visibleCols.id                       && <Th col="id"                       label="Endorsement ID"             sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.policyNumber             && <Th col="policyNumber"             label="Policy Number"              sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                <Th col="insuredName"                   label="Insured Name"               sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
-                {visibleCols.lob                      && <Th col="lob"                      label="Line of Business"           sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.policyEffectiveDate      && <Th col="policyEffectiveDate"      label="Policy Effective Date"      sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.transactionEffectiveDate && <Th col="transactionEffectiveDate" label="Transaction Effective Date" sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.premiumImpact            && <Th col="premiumImpact"            label="Premium Impact"             sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                {visibleCols.createdAt                && <Th col="createdAt"                label="Creation Date"              sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />}
-                <Th col="status"                        label="Status"                     sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} />
+                {orderedVisibleCols.map(col => <Th key={col} col={col} label={ALL_LABELS[col]} sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} dragProps={{ ...headerProps(col), className: draggingCol === col ? 'column-dragging' : '' }} />)}
               </tr>
             </thead>
             <tbody>
@@ -239,20 +251,7 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
                   <td className="row-num">{(page - 1) * pageSize + i + 1}</td>
                   <td><input type="checkbox" /></td>
                   <td><div className="action-cell"><button className="action-btn" title="View Plans Overview" onClick={e => { e.stopPropagation(); openEndorsement(r.id); }}><EyeIcon /></button></div></td>
-                  {visibleCols.id                       && <td className="mono">{r.id}</td>}
-                  {visibleCols.policyNumber             && <td className="mono" style={{ color: '#1a3b6b' }}>{r.policyNumber}</td>}
-                  <td>
-                    <div className="insured-cell">
-                      <div className="insured-avatar" style={{ background: avatarColor(r.insuredName) }}>{initials(r.insuredName)}</div>
-                      <span className="insured-name">{r.insuredName}</span>
-                    </div>
-                  </td>
-                  {visibleCols.lob                      && <td>{r.lob}</td>}
-                  {visibleCols.policyEffectiveDate      && <td>{r.policyEffectiveDate}</td>}
-                  {visibleCols.transactionEffectiveDate && <td>{r.transactionEffectiveDate}</td>}
-                  {visibleCols.premiumImpact            && <td style={{ textAlign: 'right' }}>{r.premiumImpact != null ? `$${Number(r.premiumImpact).toLocaleString()}` : <span style={{ color: '#9ca3af' }}>-</span>}</td>}
-                  {visibleCols.createdAt                && <td>{r.createdAt}</td>}
-                  <td><span className={`badge badge-${(r.status || '').toLowerCase().replace(/\s+/g, '-')}`}><span className="badge-dot" />{r.status}</span></td>
+                  {orderedVisibleCols.map(col => renderEndorsementCell(r, col))}
                 </tr>
               ))}
             </tbody>

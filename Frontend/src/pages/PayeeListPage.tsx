@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import PaginationBar from '../components/PaginationBar';
 import { payeesApi, type PayeeListItemDto, type PayeeKpiDto } from '../api/payees';
 import { useSessionState } from '../hooks/useSessionState';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type ColKey = 'payeeName' | 'payeeType' | 'claimId' | 'policyId' | 'paymentMethod' | 'complianceCheck' | 'dateOfLoss' | 'lossType' | 'amount' | 'status';
@@ -259,6 +260,7 @@ export default function PayeeListPage() {
   const [page,          setPage]          = useState(1);
   const [pageSize,      setPageSize]      = useState(10);
   const [visibleCols,   setVisibleCols]   = useState<Set<ColKey>>(new Set(ALL_COLS.map(c => c.key)));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(ALL_COLS.map(c => c.key));
   const [showColPanel,  setShowColPanel]  = useState(false);
   const [colPanelRect,  setColPanelRect]  = useState<DOMRect | null>(null);
   const [activeFilter,  setActiveFilter]  = useState<ColKey | null>(null);
@@ -297,7 +299,7 @@ export default function PayeeListPage() {
   }, [search, columnFilters, colValues, rows]);
 
   const pageRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
-  const visibleColDefs = ALL_COLS.filter(c => visibleCols.has(c.key));
+  const visibleColDefs = colOrder.map(key => ALL_COLS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
 
   function isFiltered(key: ColKey) {
     const f = columnFilters[key];
@@ -376,7 +378,7 @@ export default function PayeeListPage() {
               </th>
               {/* Data columns */}
               {visibleColDefs.map(col => (
-                <th key={col.key} style={{ ...TH }}>
+                <th {...headerProps(col.key)} key={col.key} style={{ ...TH, cursor: 'grab', opacity: draggingCol === col.key ? 0.55 : 1 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {col.label}
                     <span
@@ -414,7 +416,7 @@ export default function PayeeListPage() {
                     {col.key === 'payeeName' ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                         {row.initials && (
-                          <span style={{ width: 26, height: 26, borderRadius: '50%', background: row.avatarColor, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0, letterSpacing: 0.3 }}>
+                          <span className="grid-avatar" style={{ width: 26, height: 26, borderRadius: '50%', background: row.avatarColor, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, flexShrink: 0, letterSpacing: 0.3 }}>
                             {row.initials}
                           </span>
                         )}

@@ -6,6 +6,14 @@ import apiClient from './client';
 
 export const QUOTES_POLICIES_MODULE = 'QUOTES_POLICIES';
 
+export interface BulkUploadResult {
+  auditId: number;
+  totalRecords: number;
+  successCount: number;
+  failureCount: number;
+  status: 'Completed' | 'CompletedWithErrors' | 'Failed';
+}
+
 export const bulkUploadApi = {
   template: (module: string = QUOTES_POLICIES_MODULE) =>
     apiClient.get<Blob>('/bulk-upload/template', {
@@ -17,7 +25,7 @@ export const bulkUploadApi = {
     const form = new FormData();
     form.append('file', file);
     form.append('module', module);
-    return apiClient.post<any>('/bulk-upload', form, {
+    return apiClient.post<BulkUploadResult>('/bulk-upload', form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data);
   },

@@ -13,6 +13,68 @@ namespace InsureEdge.UnitTests;
 public class BulkUploadServiceValidationTests
 {
     [Fact]
+    public async Task Every_valid_row_is_created_with_listing_fields_and_a_unique_quote_id()
+    {
+        var auditRepository = new Mock<IBulkUploadRepository>();
+        auditRepository
+            .Setup(repository => repository.CreateAuditAsync(7, 11, BulkUploadService.QuotesPoliciesModule, "three-records.xlsx", 3))
+            .ReturnsAsync(new BulkUploadAudit { Id = 44, ClientId = 7 });
+        auditRepository
+            .Setup(repository => repository.UpdateAuditAsync(7, 44, It.IsAny<int>(), It.IsAny<string>(), It.IsAny<byte[]?>()))
+            .Returns(Task.CompletedTask);
+
+        var tenant = new Mock<ICurrentTenantService>();
+        tenant.SetupGet(service => service.ClientId).Returns(7);
+        tenant.SetupGet(service => service.UserId).Returns(11);
+        tenant.SetupGet(service => service.ProducerId).Returns(101);
+        tenant.SetupGet(service => service.IntermediaryId).Returns(202);
+
+        var requests = new List<CreateSubmissionRequest>();
+        var nextQuote = 3844;
+        var submissionRepository = new Mock<ISubmissionRepository>();
+        submissionRepository
+            .Setup(repository => repository.CreateAsync(7, 11, It.IsAny<CreateSubmissionRequest>()))
+            .Callback<long, long, CreateSubmissionRequest>((_, _, request) => requests.Add(request))
+            .ReturnsAsync(() => new SubmissionDto($"{nextQuote++:00000000000}", "Draft", DateTime.UtcNow, "{}"));
+
+        var service = new BulkUploadService(
+            auditRepository.Object,
+            submissionRepository.Object,
+            tenant.Object,
+            new RatingService(Mock.Of<IRatingRepository>()));
+
+        var rows = new[] { "Alpha", "Bravo", "Charlie" }.Select((firstName, index) =>
+        {
+            var row = ValidRow();
+            row[BulkUploadColumns.FirstName] = firstName;
+            return new BulkUploadRow(index + 4, row);
+        }).ToList();
+
+        var result = await service.ProcessAsync("three-records.xlsx", rows);
+
+        result.Status.Should().Be("Completed");
+        result.TotalRecords.Should().Be(3);
+        result.SuccessCount.Should().Be(3);
+        result.FailureCount.Should().Be(0);
+        requests.Should().HaveCount(3);
+
+        requests.Select(request =>
+        {
+            using var json = JsonDocument.Parse(request.DataJson);
+            return json.RootElement.GetProperty("form").GetProperty("firstName").GetString();
+        }).Should().Equal("Alpha", "Bravo", "Charlie");
+
+        foreach (var request in requests)
+        {
+            using var json = JsonDocument.Parse(request.DataJson);
+            var form = json.RootElement.GetProperty("form");
+            form.GetProperty("lob").GetString().Should().Be("E&S Homeowners");
+            form.GetProperty("subProduct").GetString().Should().Be("SuperPerils");
+            form.GetProperty("approvalStatus").ValueKind.Should().Be(JsonValueKind.Null);
+        }
+    }
+
+    [Fact]
     public async Task Invalid_and_duplicate_rows_fail_without_persisting_and_report_physical_rows_and_columns()
     {
         var auditRepository = new Mock<IBulkUploadRepository>();
@@ -120,6 +182,8 @@ public class BulkUploadServiceValidationTests
         invalidRow[BulkUploadColumns.FirstName] = null;
 
         var validRow = ValidRow();
+        validRow[BulkUploadColumns.TypeOfPrimaryInsured] = "Association";
+        validRow[BulkUploadColumns.OrganizationName] = "Association Test Group";
         validRow[BulkUploadColumns.Sinkhole] = "Yes";
 
         var result = await service.ProcessAsync("upload.xlsx", new List<BulkUploadRow>
@@ -140,6 +204,8 @@ public class BulkUploadServiceValidationTests
             form.GetProperty("brokerageFirmId").GetInt64().Should().Be(202);
             form.GetProperty("producerId").GetInt64().Should().Be(101);
             form.GetProperty("isHBProducer").GetBoolean().Should().BeTrue();
+            form.GetProperty("insuredType").GetString().Should().Be("Association");
+            form.GetProperty("organizationName").GetString().Should().Be("Association Test Group");
             form.GetProperty("effectiveDate").GetString().Should().Be("11-18-2026");
             form.GetProperty("expirationDate").GetString().Should().Be("11-18-2027");
             form.GetProperty("policyTerm").GetString().Should().Be("Annual");

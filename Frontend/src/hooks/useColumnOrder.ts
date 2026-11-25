@@ -19,8 +19,17 @@ export function useColumnOrder<K extends string>(initial: K[]) {
   const headerProps = (key: K) => ({
     draggable: true,
     title: 'Drag to reorder',
-    onDragStart: (e: DragEvent) => { setDragging(key); e.dataTransfer.effectAllowed = 'move'; },
-    onDragOver: (e: DragEvent) => { if (dragging) e.preventDefault(); },
+    onDragStart: (e: DragEvent) => {
+      setDragging(key);
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox requires drag data before it will start a native HTML drag.
+      e.dataTransfer.setData('text/plain', key);
+    },
+    onDragOver: (e: DragEvent) => {
+      if (!dragging) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    },
     onDrop: (e: DragEvent) => { e.preventDefault(); if (dragging) move(dragging, key); setDragging(null); },
     onDragEnd: () => setDragging(null),
   });

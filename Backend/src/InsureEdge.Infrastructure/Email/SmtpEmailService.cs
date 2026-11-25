@@ -25,12 +25,14 @@ public class SmtpEmailService : IEmailService
     public SmtpEmailService(IConfiguration config, ILogger<SmtpEmailService> log)
     {
         _log = log;
-        _host = config["SMTP_HOST"] ?? throw new InvalidOperationException("SMTP_HOST not configured.");
+        // Keep service construction independent from SMTP availability. Producer creation
+        // must still be able to create its linked login when email is disabled in local/QA;
+        // the caller can then treat only the invitation delivery as a non-blocking warning.
+        _host = config["SMTP_HOST"]?.Trim() ?? string.Empty;
         _port = int.Parse(config["SMTP_PORT"] ?? "587");
-        _username = config["SMTP_USERNAME"] ?? config["SMTP_USER"]
-            ?? throw new InvalidOperationException("SMTP_USERNAME/SMTP_USER not configured.");
-        _password = config["SMTP_PASSWORD"] ?? throw new InvalidOperationException("SMTP_PASSWORD not configured.");
-        _fromEmail = config["SMTP_FROM_EMAIL"] ?? config["SMTP_FROM_ADDRESS"] ?? _username;
+        _username = (config["SMTP_USERNAME"] ?? config["SMTP_USER"])?.Trim() ?? string.Empty;
+        _password = config["SMTP_PASSWORD"] ?? string.Empty;
+        _fromEmail = (config["SMTP_FROM_EMAIL"] ?? config["SMTP_FROM_ADDRESS"] ?? _username).Trim();
         _fromName = config["SMTP_FROM_NAME"] ?? "Hudson Bailey InsureEdge";
         // Try output-dir path first; fall back to source path for dev
         var outDir = Path.Combine(AppContext.BaseDirectory, "Email", "Templates");
@@ -76,6 +78,7 @@ public class SmtpEmailService : IEmailService
         string body,
         IEnumerable<EmailAttachment>? attachments = null)
     {
+        EnsureConfigured();
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(string.Empty, fromEmail));
 
@@ -117,6 +120,7 @@ public class SmtpEmailService : IEmailService
 
     private async Task SendAsync(string toEmail, string toName, string subject, string html, string text)
     {
+        EnsureConfigured();
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(_fromName, _fromEmail));
         message.To.Add(new MailboxAddress(toName, toEmail));
@@ -140,6 +144,7 @@ public class SmtpEmailService : IEmailService
     {
         try
         {
+            EnsureConfigured();
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress(_fromName, fromEmail ?? _fromEmail));
             message.To.Add(new MailboxAddress(toEmail.Split('@')[0], toEmail));
@@ -183,6 +188,18 @@ public class SmtpEmailService : IEmailService
             _log.LogError(ex, "Email sending failed for {ToEmail}", toEmail);
             throw new InvalidOperationException($"Failed to send email to {toEmail}: {ex.Message}", ex);
         }
+    }
+
+    private void EnsureConfigured()
+    {
+        if (string.IsNullOrWhiteSpace(_host))
+            throw new InvalidOperationException("SMTP_HOST not configured.");
+        if (string.IsNullOrWhiteSpace(_username))
+            throw new InvalidOperationException("SMTP_USERNAME/SMTP_USER not configured.");
+        if (string.IsNullOrWhiteSpace(_password))
+            throw new InvalidOperationException("SMTP_PASSWORD not configured.");
+        if (string.IsNullOrWhiteSpace(_fromEmail))
+            throw new InvalidOperationException("SMTP_FROM_EMAIL/SMTP_FROM_ADDRESS not configured.");
     }
 
     private async Task<string> LoadAndReplaceAsync(string templateName, params (string Key, string Value)[] replacements)

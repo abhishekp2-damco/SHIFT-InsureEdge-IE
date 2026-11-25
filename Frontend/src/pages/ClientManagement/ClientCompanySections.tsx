@@ -10,7 +10,7 @@ import {
   emptyContact, formatPhoneWithFlag, toContactRequest, validateContactList,
 } from './ClientFormFields';
 import {
-  BUSINESS_DESCRIPTION_MAX, CANADA, COUNTRIES, type Errors, apiErrorMessage, digitsOnly,
+  BUSINESS_DESCRIPTION_MAX, CANADA, COUNTRIES, type Errors, apiErrorMessage, changeDomicileCountry, clearDomicileErrors, digitsOnly,
   formatFederalTaxId, regionOptions, stateLabel, validateAddress, validateBusinessDescription, zipLabel,
   validateClientLogoFile, validateCompanyForm,
 } from './validation';
@@ -141,19 +141,28 @@ function StatusToggle({ active, onChange }: { active: boolean; onChange: (active
   </button>;
 }
 
-function PrimaryFields({ form, setForm, errors, existingLogo, logoValidationError, onLogoValidationError }: {
+function PrimaryFields({ form, setForm, errors, existingLogo, logoValidationError, onLogoValidationError, onDomicileChange }: {
   form: SaveCompanyRequest; setForm: React.Dispatch<React.SetStateAction<SaveCompanyRequest>>; errors: Errors; existingLogo?: boolean;
-  logoValidationError?: string; onLogoValidationError: (error: string) => void;
+  logoValidationError?: string; onLogoValidationError: (error: string) => void; onDomicileChange: () => void;
 }) {
   const set = <K extends keyof SaveCompanyRequest>(key: K, value: SaveCompanyRequest[K]) => setForm(current => ({ ...current, [key]: value }));
+  const changeCountry = (country: string) => {
+    if (country === form.domicileCountry) return;
+    setForm(current => changeDomicileCountry(current, country));
+    onDomicileChange();
+  };
+  const changeState = (state: string) => {
+    set('stateOfDomicile', state);
+    onDomicileChange();
+  };
   const states = regionOptions(form.domicileCountry);
   return <div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, minHeight: 22 }}><strong style={{ fontSize: 12 }}>Status :</strong><StatusToggle active={form.status !== 'Inactive'} onChange={active => set('status', active ? 'Active' : 'Inactive')} /></div>
     <LogoField form={form} setForm={setForm} error={errors.logo} existing={existingLogo} validationError={logoValidationError} onValidationError={onLogoValidationError} />
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', columnGap: 12, rowGap: 10, marginTop: 12 }}>
       <Field label="Company Name" required error={errors.companyName}><TextInput value={form.companyName} onChange={v => set('companyName', v)} maxLength={75} error={errors.companyName} /></Field>
-      <Field label="Domicile Country" required error={errors.domicileCountry}><Select value={form.domicileCountry} options={COUNTRIES} error={errors.domicileCountry} onChange={v => setForm(current => ({ ...current, domicileCountry: v, stateOfDomicile: '' }))} /></Field>
-      <Field label={stateLabel(form.domicileCountry) + ' of Domicile'} required error={errors.stateOfDomicile}><Select value={form.stateOfDomicile} options={states} error={errors.stateOfDomicile} onChange={v => set('stateOfDomicile', v)} /></Field>
+      <Field label="Domicile Country" required error={errors.domicileCountry}><Select value={form.domicileCountry} options={COUNTRIES} error={errors.domicileCountry} onChange={changeCountry} /></Field>
+      <Field label={stateLabel(form.domicileCountry) + ' of Domicile'} required error={errors.stateOfDomicile}><Select value={form.stateOfDomicile} options={states} resetKey={form.domicileCountry} error={errors.stateOfDomicile} onChange={changeState} /></Field>
       <Field label="NAIC Code" required error={errors.naicCode}><TextInput value={form.naicCode} onChange={v => set('naicCode', digitsOnly(v, 5))} maxLength={5} placeholder="#####" error={errors.naicCode} /></Field>
       <Field label="Email ID"><TextInput value={form.emailId} onChange={v => set('emailId', v)} maxLength={50} /></Field>
       <Field label="Telephone Number"><PhoneInput value={form.telephoneNumber} cc={form.telephoneNumberCc} onChange={v => set('telephoneNumber', v)} onCcChange={v => set('telephoneNumberCc', v)} /></Field>
@@ -203,7 +212,7 @@ function NewCompanyForm({ sequence, onSaved, onToast }: { sequence: number; onSa
         <div className="cm-company-section cm-company-primary-section">
           <h3 className="cm-company-section-title">Company Primary Information</h3>
       <div style={{ background: '#e5faf2', marginBottom: 14, padding: '10px 9px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11 }}><strong style={{ color: '#006b4f' }}>Client Company ID - {generatedCompanyCode}</strong><span style={{ fontSize: 9 }}>Auto Generated</span></div>
-          <PrimaryFields form={form} setForm={setForm} errors={errors} logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} />
+          <PrimaryFields form={form} setForm={setForm} errors={errors} logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} onDomicileChange={() => setErrors(clearDomicileErrors)} />
         </div>
       </div>
       <div className="cm-company-detail-column">
@@ -269,7 +278,7 @@ function CompanyDetails({ company, refresh, toast }: { company: CompanyDto; refr
   return <div style={{ padding: 16, background: '#f8fafc' }} className="cm-scope">
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(320px, .9fr) minmax(460px, 1.35fr)', gap: 16 }}>
       <section style={section}><SectionTitle onEdit={editing ? undefined : () => begin('primary')}>Primary Information</SectionTitle>
-        {editing === 'primary' ? <><PrimaryFields form={form} setForm={setForm} errors={errors} existingLogo logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} />{actions}</> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '18px 14px' }}>
+        {editing === 'primary' ? <><PrimaryFields form={form} setForm={setForm} errors={errors} existingLogo logoValidationError={logoValidationError} onLogoValidationError={setLogoValidationError} onDomicileChange={() => setErrors(clearDomicileErrors)} />{actions}</> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '18px 14px' }}>
           <DashField label="Company Name" value={company.companyName} /><DashField label="Domicile Country" value={company.domicileCountry} /><DashField label="State of Domicile" value={company.stateOfDomicile} /><DashField label="NAIC Code" value={company.naicCode} /><DashField label="Client Company ID" value={company.companyCode} /><DashField label="Status" value={company.status} /><DashField label="Email ID" value={company.emailId} /><DashField label="Telephone Number" value={formatPhoneWithFlag(company.telephoneNumber, company.telephoneNumberCc)} /><DashField label="Extension" value={company.extension} /><DashField label="Federal Tax ID" value={company.federalTaxId} /><DashField label="Client URL" value={company.url} /><DashField label="Business Description" value={company.businessDescription} />
         </div>}
       </section>

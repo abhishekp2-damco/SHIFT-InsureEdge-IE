@@ -25,7 +25,7 @@ import { OfficeLocations } from './ClientManagement/OfficeLocations';
 import { ClientCompanyInformation, ClientCompanyProducts } from './ClientManagement/ClientCompanySections';
 import {
   BUSINESS_DESCRIPTION_MAX, CANADA, COMPANY_TYPES, COUNTRIES, EST_DWP_OPTIONS, type Errors, US_STATES as US_STATE_NAMES,
-  apiErrorMessage, digitsOnly, formatFederalTaxId, regionOptions, stateLabel, todayMmDdYyyy,
+  apiErrorMessage, changeDomicileCountry, clearDomicileErrors, digitsOnly, formatFederalTaxId, regionOptions, stateLabel, todayMmDdYyyy,
   validateAddress, validateBusinessDescription, validateClientInfo, validateClientLogoFile, zipLabel,
 } from './ClientManagement/validation';
 import * as fv from '../utils/fieldValidation';
@@ -655,6 +655,7 @@ function ClientInfoTab({ client, onRefresh, showToast, onEditingChange }: {
   const [form, setForm] = useState<SaveClientInfoRequest>({ companyName: client.companyName });
   const [errors, setErrors] = useState<Errors>({});
   const [submitted, setSubmitted] = useState(false);
+  const [domicileValidatedBySave, setDomicileValidatedBySave] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const hasLogo = (f: SaveClientInfoRequest) => !!(f.logoBase64 ?? client.logoBase64);
@@ -685,19 +686,34 @@ function ClientInfoTab({ client, onRefresh, showToast, onEditingChange }: {
       extension: client.extension, clientUrl: client.clientUrl,
       clientOnboardingDate: client.clientOnboardingDate || todayMmDdYyyy(), status: client.status,
     });
-    setErrors({}); setSubmitted(false);
+    setErrors({}); setSubmitted(false); setDomicileValidatedBySave(false);
     setEditing(true);
   };
 
   const patch = (p: Partial<SaveClientInfoRequest>) => setForm(f => {
     const next = { ...f, ...p };
-    if (submitted) setErrors(validateClientInfo(next, hasLogo(next)));
+    if (submitted) {
+      const nextErrors = validateClientInfo(next, hasLogo(next));
+      setErrors(domicileValidatedBySave ? nextErrors : clearDomicileErrors(nextErrors));
+    }
     return next;
   });
   const up = (k: keyof SaveClientInfoRequest) => (v: string) => patch({ [k]: v });
+  const handleDomicileCountryChange = (country: string) => {
+    if (country === form.domicileCountry) return;
+    setForm(current => changeDomicileCountry(current, country));
+    setErrors(clearDomicileErrors);
+    setDomicileValidatedBySave(false);
+  };
+  const handleDomicileStateChange = (state: string) => {
+    setForm(current => ({ ...current, stateOfDomicile: state }));
+    setErrors(clearDomicileErrors);
+    setDomicileValidatedBySave(false);
+  };
 
   const save = async () => {
     setSubmitted(true);
+    setDomicileValidatedBySave(true);
     const errs = validateClientInfo(form, hasLogo(form));
     setErrors(errs);
     if (Object.keys(errs).length) return;
@@ -787,13 +803,20 @@ function ClientInfoTab({ client, onRefresh, showToast, onEditingChange }: {
               </Field>
               <Field label="Domicile Country" required error={errors.domicileCountry}>
                 <Select value={form.domicileCountry} options={COUNTRIES} error={errors.domicileCountry}
-                  onChange={v => patch(v === form.domicileCountry ? {} : { domicileCountry: v, stateOfDomicile: '' })} />
+                  onChange={handleDomicileCountryChange} />
               </Field>
               <Field label={domicileState} required error={errors.stateOfDomicile}>
-                <Select value={form.stateOfDomicile} onChange={up('stateOfDomicile')} options={regionOptions(form.domicileCountry)} error={errors.stateOfDomicile} />
+                <Select value={form.stateOfDomicile} onChange={handleDomicileStateChange} options={regionOptions(form.domicileCountry)}
+                  resetKey={form.domicileCountry} error={errors.stateOfDomicile} />
               </Field>
               <Field label="State Allowed to Operate">
-                <MultiSelect value={form.stateAllowedToOperate} onChange={up('stateAllowedToOperate')} options={US_STATE_NAMES} />
+                <MultiSelect
+                  value={form.stateAllowedToOperate}
+                  onChange={up('stateAllowedToOperate')}
+                  options={US_STATE_NAMES}
+                  ariaLabel="State Allowed to Operate"
+                  placeholder="Select states..."
+                />
               </Field>
               <Field label="Federal Tax ID" required error={errors.federalTaxId}>
                 <TextInput value={form.federalTaxId} onChange={v => patch({ federalTaxId: formatFederalTaxId(v) })} maxLength={10} placeholder="##-#######" error={errors.federalTaxId} />

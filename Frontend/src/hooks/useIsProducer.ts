@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { authApi } from '../api/auth';
 
 // Path prefixes a producer may open. My Profile is account self-service, not a module.
-export const PRODUCER_PATHS = ['/dashboard', '/quotes-policies', '/claims', '/my-profile'];
+export const PRODUCER_PATHS = ['/dashboard', '/quotes-policies', '/claims', '/reports', '/my-profile'];
 
 export const isProducerPath = (pathname: string) =>
   pathname === '/' || PRODUCER_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`));

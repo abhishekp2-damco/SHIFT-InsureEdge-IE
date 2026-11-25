@@ -12,6 +12,7 @@ using InsureEdge.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace InsureEdge.API.Controllers;
 
@@ -31,17 +32,23 @@ public class DistributionController : ControllerBase
     private readonly ICurrentTenantService _tenant;
     private readonly ProducerDraftIds _draftIds;
     private readonly IntermediaryService _intermediaryService;
+    private readonly IServiceProvider _services;
+    private readonly ILogger<DistributionController> _logger;
 
     public DistributionController(
         InsureEdgeDbContext db,
         ICurrentTenantService tenant,
         ProducerDraftIds draftIds,
-        IntermediaryService intermediaryService)
+        IntermediaryService intermediaryService,
+        IServiceProvider services,
+        ILogger<DistributionController> logger)
     {
         _db = db;
         _tenant = tenant;
         _draftIds = draftIds;
         _intermediaryService = intermediaryService;
+        _services = services;
+        _logger = logger;
     }
 
     [HttpGet("intermediaries")]
@@ -190,8 +197,11 @@ public class DistributionController : ControllerBase
             if (existing != null)
             {
                 // A retry after a successful commit must not insert or overwrite a producer.
-                return existing.IntermediaryId == request.IntermediaryId && existing.ProducerCode == ProducerDraftIds.FormatCode(reservation.Id)
-                    ? Ok(ToProducerResponse(existing)) : Conflict(new { error = "The reserved producer ID is already in use." });
+                if (existing.IntermediaryId != request.IntermediaryId || existing.ProducerCode != ProducerDraftIds.FormatCode(reservation.Id))
+                    return Conflict(new { error = "The reserved producer ID is already in use." });
+
+                await EnsureProducerLoginAsync(existing);
+                return Ok(ToProducerResponse(existing));
             }
         }
 
@@ -236,6 +246,8 @@ public class DistributionController : ControllerBase
         await _db.SaveChangesAsync();
         await transaction.CommitAsync();
 
+        await EnsureProducerLoginAsync(producer);
+
         return Ok(ToProducerResponse(producer));
     }
 
@@ -264,7 +276,23 @@ public class DistributionController : ControllerBase
         ApplyProducer(producer, request);
         await _db.SaveChangesAsync();
 
+        await EnsureProducerLoginAsync(producer);
+
         return Ok(ToProducerResponse(producer));
+    }
+
+    private async Task EnsureProducerLoginAsync(Producer producer)
+    {
+        if (string.IsNullOrWhiteSpace(producer.Email)) return;
+
+        var producerService = _services.GetRequiredService<ProducerService>();
+        var (success, error) = await producerService.EnsureLinkedUserAsync(producer.Id);
+        if (!success)
+        {
+            _logger.LogWarning(
+                "Producer {ProducerId} was saved without a linked login account: {Error}",
+                producer.Id, error);
+        }
     }
 
     [HttpDelete("producers/{id:long}")]

@@ -116,12 +116,16 @@ export default function BulkUploadModal({ onClose }: BulkUploadModalProps) {
     if (!selectedFile || processing) return;
     setProcessing(true);
     try {
-      await api.upload(selectedFile);
+      const result = await api.upload(selectedFile);
       const rows = await api.history();
       setHistory(rows.map(mapHistoryRow));
       setSelectedFile(null);
       setFileError(null);
-      showToastMsg('File processed. Check the Previously Uploaded Files section for results.');
+      if (result.failureCount > 0) {
+        showToastMsg(`${result.successCount} of ${result.totalRecords} records uploaded. Download the report for ${result.failureCount} failed record${result.failureCount === 1 ? '' : 's'}.`);
+      } else {
+        showToastMsg(`All ${result.successCount} records uploaded successfully. Records appear under Individual or Business according to Type of Primary Insured.`);
+      }
     } catch (err: any) {
       setFileError(err?.response?.data?.error ?? err?.message ?? 'Upload failed. Please try again.');
     } finally {

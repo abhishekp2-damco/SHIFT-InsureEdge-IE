@@ -10,6 +10,7 @@ interface Props {
   options: Option[]
   value: string
   onChange: (value: string) => void
+  resetKey?: string
   placeholder?: string
   disabled?: boolean
   clearable?: boolean
@@ -17,7 +18,7 @@ interface Props {
 }
 
 export default function SearchableSelect({
-  options, value, onChange, placeholder = 'Select...', disabled, clearable = false, appearance = 'default',
+  options, value, onChange, resetKey, placeholder = 'Select...', disabled, clearable = false, appearance = 'default',
 }: Props) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -34,6 +35,11 @@ export default function SearchableSelect({
     document.addEventListener('mousedown', h)
     return () => document.removeEventListener('mousedown', h)
   }, [])
+
+  useEffect(() => {
+    setOpen(false)
+    setSearch('')
+  }, [resetKey])
 
   return (
     <div ref={ref} className="relative" style={userReference ? { position: 'relative', width: '100%' } : undefined}>

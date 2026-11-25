@@ -8,6 +8,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { policyStatusLabel } from '../../utils/policyStatus';
 import { authApi } from '../../api/auth';
 import { useIsProducer } from '../../hooks/useIsProducer';
+import { isParentRouteActive } from '../../utils/activeRoute';
 import './QuotesPolicies.css';
 
 type ActionItem = {
@@ -27,8 +28,6 @@ const sections: Array<{ title: string; items: ActionItem[] }> = [
       { label: 'Policies', to: '/quotes-policies/individual/policies', icon: FileCheck2 },
     ],
   },
-  // D1-16: the "Business" section (business NB/Endorsement/Renewal/Policies registers) is not
-  // used by H&B, so it is hidden here and its routes redirect to Individual (see App.tsx).
 ];
 
 const businessSection: { title: string; items: ActionItem[] } = {
@@ -48,10 +47,6 @@ const recentActivity = [
   'Submission viewed for Quote ID 0000000059',
   'Policy viewed for Policy ID 0000000728',
 ];
-
-function isActivePath(pathname: string, to: string, matches: string[] = []) {
-  return [to, ...matches].some(path => pathname === path || pathname.startsWith(`${path}/`));
-}
 
 function ActionsToggleIcon({ collapsed }: { collapsed: boolean }) {
   return collapsed ? (
@@ -150,7 +145,8 @@ export default function QuotesPoliciesLandingShell() {
                         const newSubmissionItemActive = showProducerSubmissionActions
                           && label === 'New Business Quote'
                           && section.title.toLowerCase() === submissionInsuredType;
-                        const moduleActive = newSubmissionItemActive || isActivePath(location.pathname, to, match);
+                        const moduleActive = newSubmissionItemActive
+                          || [to, ...(match ?? [])].some(path => isParentRouteActive(location.pathname, path));
 
                         return (
                           <NavLink
@@ -195,11 +191,10 @@ export default function QuotesPoliciesLandingShell() {
 }
 
 // ─── Avatar helpers (used by the register grids for the insured-name avatar chip) ──
-const AVATAR_COLORS = ['#1a3b6b', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#dc2626'];
+const INSURED_AVATAR_BACKGROUND = '#7fc1e2';
 
-export function avatarColor(name: string) {
-  const seed = name ? name.charCodeAt(0) : 0;
-  return AVATAR_COLORS[seed % AVATAR_COLORS.length];
+export function avatarColor(_name: string) {
+  return INSURED_AVATAR_BACKGROUND;
 }
 
 export function initials(name: string) {

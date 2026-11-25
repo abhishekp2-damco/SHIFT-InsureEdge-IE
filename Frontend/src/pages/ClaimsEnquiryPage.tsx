@@ -6,6 +6,7 @@ import type { ClaimEnquiryDto, AssignableUserDto } from '../types/Claim';
 import { usePermissions } from '../contexts/PermissionContext';
 import PaginationBar from '../components/PaginationBar';
 import { useSessionState } from '../hooks/useSessionState';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 const DEFAULT_PAGE_SIZE = 10;
 const EXPORT_FORMATS = ['CSV', 'PDF', 'XLSX', 'TXT'];
@@ -315,6 +316,7 @@ export default function ClaimsEnquiryPage() {
   const [openFilterCol, setOpenFilterCol] = useState<ColKey | null>(null);
   const [filterAnchorRects, setFilterAnchorRects] = useState<Partial<Record<ColKey, DOMRect>>>({});
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(new Set(ALL_COLS.map(col => col.key)));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(ALL_COLS.map(col => col.key));
   const [valueFilters, setValueFilters] = useSessionState<ValueFilters>('grid-filters:claims-enquiry:values', {});
   const [condFilters, setCondFilters] = useSessionState<CondFilters>('grid-filters:claims-enquiry:conditions', {});
 
@@ -330,7 +332,7 @@ export default function ClaimsEnquiryPage() {
   });
 
   const allRows = data?.items ?? [];
-  const renderedCols = ALL_COLS.filter(col => visibleCols.has(col.key));
+  const renderedCols = colOrder.map(key => ALL_COLS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
 
   const filtered = useMemo(() => allRows.filter(row => {
     for (const col of ALL_COLS) {
@@ -437,7 +439,7 @@ export default function ClaimsEnquiryPage() {
                 <th style={{ width: 42, padding: '10px 10px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb' }}><button onClick={event => { setModifyColsRect((event.currentTarget as HTMLElement).getBoundingClientRect()); setShowModifyCols(open => !open); }} title="Modify Columns" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: '#6b7280', width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1, borderRadius: 4 }}><ColumnsIcon /></button>{showModifyCols && modifyColsRect && <ModifyColumnsPanel visibleCols={visibleCols} onToggle={toggleColumn} onClose={() => setShowModifyCols(false)} anchorRect={modifyColsRect} />}</th>
                 <th style={{ width: 38, padding: '10px 8px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', textAlign: 'center' }}><input type="checkbox" checked={pageItems.length > 0 && pageItems.every(row => selectedIds.includes(row.id))} onChange={toggleAll} style={{ width: 14, height: 14, cursor: 'pointer', accentColor: '#0B5AA0' }} /></th>
                 <th style={{ width: 90, padding: '10px 12px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12, color: '#374151' }}>Action</th>
-                {renderedCols.map(col => <th key={col.key} style={{ padding: '10px 12px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12, color: '#374151', whiteSpace: 'nowrap', width: col.width, cursor: col.sortable ? 'pointer' : 'default', userSelect: 'none', textAlign: col.align ?? 'left' }} onClick={() => col.sortable && handleSort(col.key)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{col.label}{col.sortable && <SortIcon field={col.key} />}<span onClick={event => { event.stopPropagation(); const rect = (event.currentTarget as HTMLElement).getBoundingClientRect(); setFilterAnchorRects(prev => ({ ...prev, [col.key]: rect })); setOpenFilterCol(openFilterCol === col.key ? null : col.key); }} style={{ marginLeft: 4, cursor: 'pointer', color: hasFilter(col.key) ? '#0B5AA0' : '#9ca3af', display: 'inline-flex', alignItems: 'center' }} title="Filter"><FilterIcon active={hasFilter(col.key)} /></span></span>{openFilterCol === col.key && filterAnchorRects[col.key] && <ColumnFilterPopup col={col} allRows={allRows} valueFilter={valueFilters[col.key] ?? []} condFilter={condFilters[col.key]} onApplyValue={vals => { setValueFilters(prev => ({ ...prev, [col.key]: vals })); setPage(1); }} onApplyCondition={filter => { setCondFilters(prev => ({ ...prev, [col.key]: filter })); setPage(1); }} onClear={() => { setValueFilters(prev => { const next = { ...prev }; delete next[col.key]; return next; }); setCondFilters(prev => { const next = { ...prev }; delete next[col.key]; return next; }); setPage(1); }} onClose={() => setOpenFilterCol(null)} anchorRect={filterAnchorRects[col.key]!} />}</th>)}
+                {renderedCols.map(col => <th {...headerProps(col.key)} key={col.key} style={{ padding: '10px 12px', borderBottom: '2px solid #e5e7eb', borderRight: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12, color: '#374151', whiteSpace: 'nowrap', width: col.width, cursor: 'grab', userSelect: 'none', textAlign: col.align ?? 'left', opacity: draggingCol === col.key ? 0.55 : 1 }} onClick={() => col.sortable && handleSort(col.key)}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>{col.label}{col.sortable && <SortIcon field={col.key} />}<span onClick={event => { event.stopPropagation(); const rect = (event.currentTarget as HTMLElement).getBoundingClientRect(); setFilterAnchorRects(prev => ({ ...prev, [col.key]: rect })); setOpenFilterCol(openFilterCol === col.key ? null : col.key); }} style={{ marginLeft: 4, cursor: 'pointer', color: hasFilter(col.key) ? '#0B5AA0' : '#9ca3af', display: 'inline-flex', alignItems: 'center' }} title="Filter"><FilterIcon active={hasFilter(col.key)} /></span></span>{openFilterCol === col.key && filterAnchorRects[col.key] && <ColumnFilterPopup col={col} allRows={allRows} valueFilter={valueFilters[col.key] ?? []} condFilter={condFilters[col.key]} onApplyValue={vals => { setValueFilters(prev => ({ ...prev, [col.key]: vals })); setPage(1); }} onApplyCondition={filter => { setCondFilters(prev => ({ ...prev, [col.key]: filter })); setPage(1); }} onClear={() => { setValueFilters(prev => { const next = { ...prev }; delete next[col.key]; return next; }); setCondFilters(prev => { const next = { ...prev }; delete next[col.key]; return next; }); setPage(1); }} onClose={() => setOpenFilterCol(null)} anchorRect={filterAnchorRects[col.key]!} />}</th>)}
               </tr>
             </thead>
             <tbody>

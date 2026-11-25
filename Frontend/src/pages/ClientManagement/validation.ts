@@ -36,6 +36,19 @@ export function validateClientLogoFile(file: Pick<File, 'type' | 'size'>): strin
 export const regionOptions = (country?: string): readonly string[] =>
   country === CANADA ? CANADA_PROVINCES : US_STATES;
 
+export function changeDomicileCountry<T extends { domicileCountry?: string; stateOfDomicile?: string }>(form: T, country: string): T {
+  return country === form.domicileCountry
+    ? form
+    : { ...form, domicileCountry: country, stateOfDomicile: '' };
+}
+
+export function clearDomicileErrors(errors: Errors): Errors {
+  const next = { ...errors };
+  delete next.domicileCountry;
+  delete next.stateOfDomicile;
+  return next;
+}
+
 export function formatFederalTaxId(raw: string): string {
   const d = digitsOnly(raw, 9);
   return d.length <= 2 ? d : `${d.slice(0, 2)}-${d.slice(2)}`;

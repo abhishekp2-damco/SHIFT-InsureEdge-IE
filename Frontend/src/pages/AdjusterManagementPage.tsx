@@ -5,6 +5,7 @@ import PaginationBar from '../components/PaginationBar';
 import type { TempAdjusterDto } from '../types/Adjuster';
 import { useSessionState } from '../hooks/useSessionState';
 import { formatPhoneView } from '../utils/fieldValidation';
+import { useColumnOrder } from '../hooks/useColumnOrder';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -284,6 +285,7 @@ export default function AdjusterManagementPage() {
   const [error,    setError]    = useState('');
 
   const [visibleCols,     setVisibleCols]     = useState<Set<ColKey>>(new Set(ALL_COLS.map(c => c.key)));
+  const { order: colOrder, dragging: draggingCol, headerProps } = useColumnOrder<ColKey>(ALL_COLS.map(c => c.key));
   const [showColPanel,    setShowColPanel]    = useState(false);
   const [colPanelRect,    setColPanelRect]    = useState<DOMRect | null>(null);
   const [activeFilter,    setActiveFilter]    = useState<ColKey | null>(null);
@@ -327,7 +329,7 @@ export default function AdjusterManagementPage() {
   const pageRows   = filteredRows.slice((page - 1) * pageSize, page * pageSize);
   const activeCount   = adjusters.filter(r => (r.status || 'Active').toLowerCase() !== 'inactive').length;
   const inactiveCount = adjusters.length - activeCount;
-  const visibleColDefs = ALL_COLS.filter(c => visibleCols.has(c.key));
+  const visibleColDefs = colOrder.map(key => ALL_COLS.find(col => col.key === key)!).filter(col => visibleCols.has(col.key));
 
   function isFiltered(key: ColKey) {
     const f = columnFilters[key];
@@ -411,7 +413,7 @@ export default function AdjusterManagementPage() {
               <th style={{ ...TH, width: 70 }}>Action</th>
               {/* Data columns */}
               {visibleColDefs.map(col => (
-                <th key={col.key} style={{ ...TH }}>
+                <th {...headerProps(col.key)} key={col.key} style={{ ...TH, cursor: 'grab', opacity: draggingCol === col.key ? 0.55 : 1 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     {col.label}
                     <span
@@ -452,7 +454,7 @@ export default function AdjusterManagementPage() {
                   <td key={col.key} style={{ ...TD }}>
                     {col.key === 'fullName' ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#d9f2ff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                        <span className="grid-avatar" style={{ width: 26, height: 26, borderRadius: '50%', background: '#d9f2ff', color: '#0B5AA0', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
                           {getRowInitials(row)}
                         </span>
                         {getRowFullName(row)}
