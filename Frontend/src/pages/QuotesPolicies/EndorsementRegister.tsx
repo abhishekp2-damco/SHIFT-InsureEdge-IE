@@ -239,7 +239,6 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
                     }}
                   >&#9776;</button>
                 </th>
-                <th style={{ width: 28 }}></th>
                 <th>Action</th>
                 {orderedVisibleCols.map(col => <Th key={col} col={col} label={ALL_LABELS[col]} sort={sort} onSort={handleSort} filters={filters} onFilterClick={openFilter} filterPopup={filterPopup} dragProps={{ ...headerProps(col), className: draggingCol === col ? 'column-dragging' : '' }} />)}
               </tr>
@@ -249,7 +248,6 @@ export default function EndorsementRegister({ insuredType }: { insuredType: stri
               {pageRows.map((r, i) => (
                 <tr key={r.id} className="data-row" onClick={() => openEndorsement(r.id)}>
                   <td className="row-num">{(page - 1) * pageSize + i + 1}</td>
-                  <td><input type="checkbox" /></td>
                   <td><div className="action-cell"><button className="action-btn" title="View Plans Overview" onClick={e => { e.stopPropagation(); openEndorsement(r.id); }}><EyeIcon /></button></div></td>
                   {orderedVisibleCols.map(col => renderEndorsementCell(r, col))}
                 </tr>

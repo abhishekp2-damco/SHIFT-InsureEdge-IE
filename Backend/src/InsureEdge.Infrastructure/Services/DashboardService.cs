@@ -440,7 +440,7 @@ public sealed class DashboardService(
         var exact => [exact]
     };
 
-    private static DashboardPreferenceDto DefaultPreference() => new(WidgetKeys.Select((key, index) => new DashboardWidgetPreferenceDto(key, index, true)).ToList());
+    private static DashboardPreferenceDto DefaultPreference() => new(WidgetKeys.Select((key, index) => new DashboardWidgetPreferenceDto(key, index, true)).ToList(), new Dictionary<string, List<string>>());
 
     private static DashboardPreferenceDto NormalizePreference(DashboardPreferenceDto preference)
     {
@@ -453,7 +453,28 @@ public sealed class DashboardService(
         var result = new List<DashboardWidgetPreferenceDto>();
         foreach (var item in supplied) result.Add(new DashboardWidgetPreferenceDto(WidgetKeys.First(k => k.Equals(item.WidgetKey, StringComparison.OrdinalIgnoreCase)), result.Count, item.IsVisible));
         foreach (var key in WidgetKeys.Where(key => result.All(x => x.WidgetKey != key))) result.Add(new DashboardWidgetPreferenceDto(key, result.Count, true));
-        return new DashboardPreferenceDto(result);
+        return new DashboardPreferenceDto(result, NormalizeHiddenColumns(preference.HiddenColumns));
+    }
+
+    // Columns a user may hide per grid. "action" is never hideable.
+    private static readonly Dictionary<string, string[]> HideableColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["failedPayments"] = ["policyNumber", "effectiveDate", "expiryDate", "paymentDate", "amountDue", "reason"],
+    };
+
+    private static Dictionary<string, List<string>> NormalizeHiddenColumns(Dictionary<string, List<string>>? hidden)
+    {
+        var result = new Dictionary<string, List<string>>();
+        if (hidden == null) return result;
+        foreach (var (grid, allowed) in HideableColumns)
+        {
+            var match = hidden.FirstOrDefault(x => x.Key.Equals(grid, StringComparison.OrdinalIgnoreCase));
+            if (match.Value == null) continue;
+            var cols = allowed.Where(a => match.Value.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
+            // Keep at least one data column visible.
+            if (cols.Count > 0 && cols.Count < allowed.Length) result[grid] = cols;
+        }
+        return result;
     }
 
     private static string AccountName(Account? account)

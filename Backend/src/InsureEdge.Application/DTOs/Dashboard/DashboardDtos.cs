@@ -111,6 +111,6 @@ public record DashboardListQuery(
     decimal? AmountDue = null,
     string? Reason = null);
 public record DashboardWidgetPreferenceDto(string WidgetKey, int DisplayOrder, bool IsVisible);
-public record DashboardPreferenceDto(List<DashboardWidgetPreferenceDto> Widgets);
+public record DashboardPreferenceDto(List<DashboardWidgetPreferenceDto> Widgets, Dictionary<string, List<string>>? HiddenColumns = null);
 public record DashboardActivityRequest(long PolicyId);
 public record DashboardRenewalResultDto(long PolicyId, string QuoteNumber);

@@ -145,5 +145,5 @@ export interface DashboardListQuery {
 }
 export interface DashboardPagedResponse<T> { data: T[]; total: number; page: number; pageSize: number; }
 export interface DashboardWidgetPreference { widgetKey: string; displayOrder: number; isVisible: boolean; }
-export interface DashboardPreference { widgets: DashboardWidgetPreference[]; }
+export interface DashboardPreference { widgets: DashboardWidgetPreference[]; hiddenColumns?: Record<string, string[]>; }
 export interface DashboardRenewalResult { policyId: number; quoteNumber: string; }

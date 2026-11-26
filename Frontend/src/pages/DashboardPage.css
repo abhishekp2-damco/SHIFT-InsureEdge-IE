@@ -25,6 +25,15 @@
 .dashboard-table .number-cell { color: #101828; text-align: center; }
 .dashboard-action { padding: 4px 8px; background: transparent; color: #15191f; }
 .dashboard-header-control { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; padding: 0; }
+/* Failed-payments grid: fixed layout so each column keeps its width (and its funnel stays at the column's right edge) when other columns are hidden. */
+.dashboard-alert-table.fixed-cols { table-layout: fixed; min-width: 1100px; }
+.dashboard-alert-table.fixed-cols .dashboard-header-control { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dashboard-alert-table.fixed-cols th:first-child { width: 120px; white-space: nowrap; }
+/* Data columns keep a fixed width; the trailing empty "fill" column absorbs leftover space so row lines run to the card's edge. */
+.dashboard-alert-table.fixed-cols th:not(:first-child):not(.fill) { width: 210px; }
+.dashboard-alert-table.fixed-cols .fill { width: auto; padding: 0; }
+.dashboard-alert-table.fixed-cols .dashboard-filterable-header { min-width: 0; justify-content: flex-start; gap: 10px; }
+.dashboard-alert-table.fixed-cols .dashboard-filterable-header .dashboard-header-control { flex: 0 1 auto; }
 .dashboard-filterable-header { display: flex; min-width: 135px; align-items: center; justify-content: space-between; gap: 8px; }
 .dashboard-filterable-header .dashboard-header-control { flex: 1; justify-content: flex-start; white-space: nowrap; }
 .dashboard-filter-wrap { position: relative; display: inline-flex; }

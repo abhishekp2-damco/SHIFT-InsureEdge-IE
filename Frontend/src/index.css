@@ -4027,7 +4027,11 @@ span.ap-th-lbl { cursor: default; }
 
 .qp-scope .page-size-select { border: 1px solid #e5e7eb; border-radius: 4px; padding: 3px 6px; font-size: 12px; background: #fff; }
 
-.qp-scope .pagination { display: flex; gap: 4px; }
+.qp-scope .pagination { display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: nowrap; padding: 0; border-top: 0; background: transparent; }
+
+/* One straight line: "Showing [10] records from N Results" on the left, page buttons on the right. */
+.qp-scope .table-footer { gap: 16px; flex-wrap: wrap; background: transparent; }
+.qp-scope .table-footer .footer-info { white-space: nowrap; flex-wrap: nowrap; }
 
 .qp-scope .page-btn { border: 1px solid #e5e7eb; background: #fff; border-radius: 4px; padding: 3px 8px; font-size: 12px; cursor: pointer; color: #374151; }
 
@@ -4892,7 +4896,12 @@ span.ap-th-lbl { cursor: default; }
 
 .qp-scope .fpopup-search-wrap {
   position: relative;
+  display: block;
   margin: 0 14px 6px;
+  /* Only the input draws the box; the wrapper must not add a second border. */
+  border: none;
+  padding: 0;
+  height: auto;
 }
 
 .qp-scope .fpopup-search-icon {

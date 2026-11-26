@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Filter, List, RefreshCw, Search, Settings2, SlidersHorizontal } from 'lucide-react';
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Filter, List, Menu, RefreshCw, Search, Settings2, SlidersHorizontal } from 'lucide-react';
 import { dashboardApi } from '../api/dashboard';
 import { authApi } from '../api/auth';
 import { usePermissions } from '../contexts/PermissionContext';
@@ -85,6 +85,66 @@ function FailedPaymentFilter({ label, filterKey, value, onApply }: { label: stri
   </span>;
 }
 
+// "Modify Columns Display" menu behind the hamburger icon in a grid header. Columns marked
+// `locked` (e.g. Action) are always shown and cannot be unticked.
+function ColumnsMenu({ columns, visible, onToggle }: { columns: Array<{ key: string; label: string; locked?: boolean }>; visible: Record<string, boolean>; onToggle: (key: string) => void }) {
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Keep the whole panel on screen: if it would run past the bottom of the viewport, slide it up.
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!pos || !panel) return;
+    const overflow = pos.top + panel.offsetHeight + 8 - window.innerHeight;
+    if (overflow > 0) setPos({ top: Math.max(8, pos.top - overflow), left: pos.left });
+  }, [pos]);
+  useEffect(() => {
+    if (!pos) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!panelRef.current?.contains(target) && !wrapRef.current?.contains(target)) setPos(null);
+    };
+    const dismiss = () => setPos(null);
+    document.addEventListener('mousedown', close);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('scroll', dismiss, true);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      window.removeEventListener('resize', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
+    };
+  }, [pos]);
+  return <span ref={wrapRef} style={{ display: 'inline-flex' }}>
+    <button type="button" className="dashboard-filter-button" aria-label="Modify columns display" aria-expanded={!!pos}
+      onClick={event => {
+        if (pos) { setPos(null); return; }
+        const rect = event.currentTarget.getBoundingClientRect();
+        setPos({ top: rect.bottom + 4, left: Math.max(8, Math.min(rect.left, window.innerWidth - 268)) });
+      }}><Menu size={19} strokeWidth={2.4} /></button>
+    {pos && <div ref={panelRef} role="dialog" aria-label="Modify Columns Display"
+      style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 9999, width: 260, background: '#fff', border: '1px solid #d1d5db', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.14)', padding: '12px 0', textAlign: 'left', fontWeight: 400, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}>
+      <div style={{ padding: '0 16px 8px', fontWeight: 600, fontSize: 15, color: '#111827' }}>Modify Columns Display</div>
+      {columns.map(col => {
+        const on = col.locked || visible[col.key] !== false;
+        return <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '2px 12px', padding: '7px 10px', fontSize: 13, cursor: col.locked ? 'not-allowed' : 'pointer', background: on ? '#e6f3fb' : 'transparent', color: col.locked ? '#6b7280' : '#0b5aa0' }}>
+          <input type="checkbox" checked={on} disabled={col.locked} onChange={() => onToggle(col.key)} style={{ width: 15, height: 15, accentColor: '#0B5AA0' }} />
+          {col.label}
+        </label>;
+      })}
+    </div>}
+  </span>;
+}
+
+const failedColumns: Array<{ key: string; label: string; locked?: boolean }> = [
+  { key: 'action', label: 'Action', locked: true },
+  { key: 'policyNumber', label: 'Policy Number' },
+  { key: 'effectiveDate', label: 'Effective Date' },
+  { key: 'expiryDate', label: 'Expiration Date' },
+  { key: 'paymentDate', label: 'Installment Due Date' },
+  { key: 'amountDue', label: 'Installment Amount' },
+  { key: 'reason', label: 'Reason' },
+];
+
 function Pagination({ page, pageSize, total, onPage, onPageSize }: { page: number; pageSize: number; total: number; onPage: (page: number) => void; onPageSize?: (size: number) => void }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const numbers = useMemo(() => [...new Set([1, 2, page - 1, page, page + 1, totalPages])].filter(value => value >= 1 && value <= totalPages).sort((a, b) => a - b), [page, totalPages]);
@@ -123,6 +183,27 @@ export default function DashboardPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [failedFilters, setFailedFilters] = useState<FailedFilters>(emptyFailedFilters);
+  // Hidden columns are saved per user on the server (dashboard preference), like the legacy
+  // ServiceAPISetConfigurations call, so the choice survives reloads.
+  const failedCols = useMemo<Record<string, boolean>>(() => {
+    const hidden = preference?.hiddenColumns?.failedPayments ?? [];
+    return Object.fromEntries(failedColumns.map(c => [c.key, !hidden.includes(c.key)]));
+  }, [preference]);
+  const showFailedCol = (key: string) => failedCols[key] !== false;
+  async function toggleFailedCol(key: string) {
+    if (!preference) return;
+    const hidden = new Set(preference.hiddenColumns?.failedPayments ?? []);
+    if (hidden.has(key)) hidden.delete(key); else hidden.add(key);
+    if (hidden.size >= failedColumns.filter(c => !c.locked).length) return; // keep one data column
+    const next: DashboardPreference = { ...preference, hiddenColumns: { ...preference.hiddenColumns, failedPayments: [...hidden] } };
+    setPreference(next);
+    try {
+      const saved = await dashboardApi.savePreference(next);
+      // Keep the user's choice if the server response omits hiddenColumns (e.g. an API build that predates it).
+      setPreference({ ...saved, hiddenColumns: saved.hiddenColumns ?? next.hiddenColumns });
+    }
+    catch (err) { setPreference(preference); setError(apiMessage(err, 'Unable to save column display.')); }
+  }
   const [listQuery, setListQuery] = useState<ListQueryState>({
     pending: { page: 1, pageSize: 10, search: '', sortColumn: 'dueDate', sortDirection: 'asc' },
     renewals: { page: 1, pageSize: 10, search: '', sortColumn: 'expiryDate', sortDirection: 'asc' },
@@ -209,7 +290,7 @@ export default function DashboardPage() {
   function sortBy(column: string) { if (sortColumn === column) setSortDirection(current => current === 'asc' ? 'desc' : 'asc'); else { setSortColumn(column); setSortDirection('asc'); } setPage(1); }
   async function openRecord(policyId: number, recordNumber: string, type: 'quote' | 'policy') { try { await dashboardApi.recordView(policyId); } catch { /* navigation must remain available if audit logging fails */ } navigate(type === 'quote' ? `/quotes-policies/submissions/${policyId}` : `/quotes-policies/policies/${encodeURIComponent(recordNumber)}`); }
   async function initiateRenewal(row: DashboardRenewalRadar) { setNotice(''); try { const result = await dashboardApi.initiateRenewal(row.policyId); navigate(`/quotes-policies/submissions/${result.policyId}`); } catch (err) { setError(apiMessage(err, 'Unable to initiate renewal.')); } }
-  async function savePreference() { if (!preferenceDraft.some(item => item.isVisible)) { setError('Select at least one dashboard widget.'); return; } try { const saved = await dashboardApi.savePreference({ widgets: preferenceDraft }); setPreference(saved); setConfigOpen(false); setNotice('Dashboard configuration saved.'); } catch (err) { setError(apiMessage(err, 'Unable to save dashboard configuration.')); } }
+  async function savePreference() { if (!preferenceDraft.some(item => item.isVisible)) { setError('Select at least one dashboard widget.'); return; } try { const saved = await dashboardApi.savePreference({ widgets: preferenceDraft, hiddenColumns: preference?.hiddenColumns }); setPreference(saved); setConfigOpen(false); setNotice('Dashboard configuration saved.'); } catch (err) { setError(apiMessage(err, 'Unable to save dashboard configuration.')); } }
   function moveWidget(index: number, delta: number) { const next = [...preferenceDraft]; const destination = index + delta; if (destination < 0 || destination >= next.length) return; [next[index], next[destination]] = [next[destination], next[index]]; setPreferenceDraft(next.map((item, order) => ({ ...item, displayOrder: order }))); }
 
   if (!permission.loaded || (permission.view && loading)) return <div className="dashboard-loading">Loading dashboard…</div>;
@@ -250,7 +331,7 @@ export default function DashboardPage() {
     {summary.context.persona === 'producer' && visible('renewalRadar') && <section className="dashboard-widget" style={{ order: widgetOrder('renewalRadar') }}><div className="dashboard-widget-heading"><h2>Renewal Radar</h2><span>Policies expiring in 0–60 days</span></div><form className="dashboard-search" onSubmit={event => { event.preventDefault(); submitListSearch('renewals'); }}><Search size={17} /><input value={listDraft.renewals} onChange={event => setListDraft(current => ({ ...current, renewals: event.target.value }))} placeholder="Search policy, LOB, premium, date, or days" /><button type="submit">Search</button>{listQuery.renewals.search && <button type="button" onClick={() => { setListDraft(current => ({ ...current, renewals: '' })); setListQuery(current => ({ ...current, renewals: { ...current.renewals, page: 1, search: '' } })); }}>Clear</button>}</form><div className="dashboard-table-wrap"><table className="dashboard-alert-table"><thead><tr><th>Actions</th><th>Policy Number</th><th>Insured Name</th><th>Line of Business</th><th>Premium</th><th>Risk Level</th><th>Expiration Date</th><th>Days Until Expiry</th></tr></thead><tbody>{renewals.data.length ? renewals.data.map(row => <tr key={row.policyId}><td><button className="dashboard-action" title="View Policy" onClick={() => void openRecord(row.policyId, row.policyNumber, 'policy')}><Eye size={17} /></button><button className="dashboard-renew" onClick={() => void initiateRenewal(row)}>Initiate Renewal</button></td><td>{row.policyNumber}</td><td>{row.insuredName}</td><td>{row.lineOfBusiness || '-'}</td><td>{money(row.premiumAmount, row.currency)}</td><td>{row.riskLevel || '-'}</td><td>{row.expiryDate}</td><td>{row.daysUntilExpiry}</td></tr>) : <tr><td colSpan={8} className="dashboard-no-data">No policies expire in the next 60 days.</td></tr>}</tbody></table></div><Pagination page={renewals.page} pageSize={renewals.pageSize} total={renewals.total} onPage={next => setListPage('renewals', next)} onPageSize={size => setListPageSize('renewals', size)} /></section>}
     {summary.context.persona === 'producer' && visible('myNotes') && <section className="dashboard-widget" style={{ order: widgetOrder('myNotes') }}><h2>My Notes</h2><div className="dashboard-empty">No notes available.</div></section>}
 
-    {summary.context.persona === 'client' && visible('failedPayments') && <section className="dashboard-widget" style={{ order: widgetOrder('failedPayments') }}><h2>Failed Payments on Monthly Installment Policies</h2><div className="dashboard-table-wrap"><table className="dashboard-alert-table"><thead><tr><th>Action</th><th><div className="dashboard-filterable-header"><SortButton label="Policy Number" column="policyNumber" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Policy Number" filterKey="policyNumber" value={failedFilters.policyNumber} onApply={applyFailedFilter} /></div></th><th><div className="dashboard-filterable-header"><SortButton label="Effective Date" column="effectiveDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Effective Date" filterKey="effectiveDate" value={failedFilters.effectiveDate} onApply={applyFailedFilter} /></div></th><th><div className="dashboard-filterable-header"><SortButton label="Expiration Date" column="expiryDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Expiration Date" filterKey="expiryDate" value={failedFilters.expiryDate} onApply={applyFailedFilter} /></div></th><th><div className="dashboard-filterable-header"><SortButton label="Installment Due Date" column="paymentDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Installment Due Date" filterKey="paymentDate" value={failedFilters.paymentDate} onApply={applyFailedFilter} /></div></th><th><div className="dashboard-filterable-header"><SortButton label="Installment Amount" column="amountDue" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Installment Amount" filterKey="amountDue" value={failedFilters.amountDue} onApply={applyFailedFilter} /></div></th><th><div className="dashboard-filterable-header"><SortButton label="Reason" column="reason" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Reason" filterKey="reason" value={failedFilters.reason} onApply={applyFailedFilter} /></div></th></tr></thead><tbody>{failedPayments.data.length ? failedPayments.data.map(row => <tr key={row.paymentTransactionId}><td><button className="dashboard-action" title="View Policy" onClick={() => void openRecord(row.policyId, row.policyNumber, 'policy')}><Eye size={17} /></button></td><td>{row.policyNumber}</td><td>{row.effectiveDate || '-'}</td><td>{row.expiryDate || '-'}</td><td>{row.paymentDate}</td><td>{money(row.amountDue, row.currency)}</td><td>{row.reason}</td></tr>) : <tr><td colSpan={7} className="dashboard-no-data">No Data Available</td></tr>}</tbody></table></div><Pagination page={failedPayments.page} pageSize={failedPayments.pageSize} total={failedPayments.total} onPage={next => setListPage('failed', next)} onPageSize={size => setListPageSize('failed', size)} /></section>}
+    {summary.context.persona === 'client' && visible('failedPayments') && <section className="dashboard-widget" style={{ order: widgetOrder('failedPayments') }}><h2>Failed Payments on Monthly Installment Policies</h2><div className="dashboard-table-wrap"><table className="dashboard-alert-table fixed-cols" style={{ width: '100%', minWidth: 120 + failedColumns.filter(c => !c.locked && showFailedCol(c.key)).length * 210 }}><thead><tr><th><div style={{ display: 'flex', alignItems: 'center', gap: 16 }}><ColumnsMenu columns={failedColumns} visible={failedCols} onToggle={key => void toggleFailedCol(key)} /><span>Action</span></div></th>{showFailedCol('policyNumber') && <th><div className="dashboard-filterable-header"><SortButton label="Policy Number" column="policyNumber" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Policy Number" filterKey="policyNumber" value={failedFilters.policyNumber} onApply={applyFailedFilter} /></div></th>}{showFailedCol('effectiveDate') && <th><div className="dashboard-filterable-header"><SortButton label="Effective Date" column="effectiveDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Effective Date" filterKey="effectiveDate" value={failedFilters.effectiveDate} onApply={applyFailedFilter} /></div></th>}{showFailedCol('expiryDate') && <th><div className="dashboard-filterable-header"><SortButton label="Expiration Date" column="expiryDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Expiration Date" filterKey="expiryDate" value={failedFilters.expiryDate} onApply={applyFailedFilter} /></div></th>}{showFailedCol('paymentDate') && <th><div className="dashboard-filterable-header"><SortButton label="Installment Due Date" column="paymentDate" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Installment Due Date" filterKey="paymentDate" value={failedFilters.paymentDate} onApply={applyFailedFilter} /></div></th>}{showFailedCol('amountDue') && <th><div className="dashboard-filterable-header"><SortButton label="Installment Amount" column="amountDue" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Installment Amount" filterKey="amountDue" value={failedFilters.amountDue} onApply={applyFailedFilter} /></div></th>}{showFailedCol('reason') && <th><div className="dashboard-filterable-header"><SortButton label="Reason" column="reason" activeColumn={listQuery.failed.sortColumn} direction={listQuery.failed.sortDirection} onSort={column => sortListBy('failed', column)} /><FailedPaymentFilter label="Reason" filterKey="reason" value={failedFilters.reason} onApply={applyFailedFilter} /></div></th>}<th className="fill" /></tr></thead><tbody>{failedPayments.data.length ? failedPayments.data.map(row => <tr key={row.paymentTransactionId}><td><button className="dashboard-action" title="View Policy" onClick={() => void openRecord(row.policyId, row.policyNumber, 'policy')}><Eye size={17} /></button></td>{showFailedCol('policyNumber') && <td>{row.policyNumber}</td>}{showFailedCol('effectiveDate') && <td>{row.effectiveDate || '-'}</td>}{showFailedCol('expiryDate') && <td>{row.expiryDate || '-'}</td>}{showFailedCol('paymentDate') && <td>{row.paymentDate}</td>}{showFailedCol('amountDue') && <td>{money(row.amountDue, row.currency)}</td>}{showFailedCol('reason') && <td>{row.reason}</td>}<td className="fill" /></tr>) : <tr><td colSpan={failedColumns.filter(c => showFailedCol(c.key)).length + 1} className="dashboard-no-data">No Data Available</td></tr>}</tbody></table></div><Pagination page={failedPayments.page} pageSize={failedPayments.pageSize} total={failedPayments.total} onPage={next => setListPage('failed', next)} onPageSize={size => setListPageSize('failed', size)} /></section>}
 
     {summary.recentActivities.length > 0 && <section className="dashboard-widget" style={{ order: 1000 }}><h2>Recent Activity</h2><div className="dashboard-activity-list">{summary.recentActivities.map(activity => <button key={activity.id} onClick={() => void openRecord(activity.policyId, activity.recordNumber, activity.recordType)}><span><strong>View</strong>{activity.description}</span><ChevronRight size={16} /></button>)}</div></section>}
   </div>

@@ -637,7 +637,6 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
                   </div>
                 </th>
-                <th style={{ width: 28 }}><input type="checkbox" /></th>
                 <th style={{ width: 52 }}><div className="th-inner">Action</div></th>
                 {orderedVisibleCols.map(col => <Th key={col} col={col} lbl={COL_DEFS.find(def => def.key === col)!.label} />)}
               </tr>
@@ -649,7 +648,6 @@ export default function NBQuotesRegister({ insuredType }: { insuredType: string 
               {paged.map((q, i) => (
                 <tr key={q.id} className="data-row" onClick={() => navigate(`/quotes-policies/submissions/${q.id}`)}>
                   <td className="row-num">{start + i + 1}</td>
-                  <td><input type="checkbox" onClick={e => e.stopPropagation()} /></td>
                   <td>
                     <div className="action-cell">
                       <button
