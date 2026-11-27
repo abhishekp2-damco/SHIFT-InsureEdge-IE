@@ -63,6 +63,9 @@ function formatPhone(raw: string): string {
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
+// Individual-name fields: letters/accents/hyphen/apostrophe/period only, max 50 (SOTP-105).
+const individualNameKeys = new Set(['firstName', 'middleName', 'lastName']);
+
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 function validateForm(form: UpsertTempAdjusterRequest, npn: string): Record<string, string> {
@@ -70,6 +73,11 @@ function validateForm(form: UpsertTempAdjusterRequest, npn: string): Record<stri
 
   if (!form.firstName?.trim())              e.firstName = 'Provide First Name to continue';
   if (!form.lastName?.trim())               e.lastName = 'Provide Last Name to continue';
+  const nameErrors: Record<string, string> = {};
+  fv.checkIndividualName(nameErrors, 'firstName', form.firstName, 'First Name');
+  fv.checkIndividualName(nameErrors, 'middleName', form.middleName, 'Middle Name / Initial');
+  fv.checkIndividualName(nameErrors, 'lastName', form.lastName, 'Last Name');
+  for (const k of Object.keys(nameErrors)) if (!e[k]) e[k] = nameErrors[k];
   if (!form.dateOfBirth?.trim()) {
     e.dateOfBirth = 'Provide Date of Birth to continue';
   } else {
@@ -429,10 +437,10 @@ export default function AddAdjusterPage() {
     return (
       <input
         value={(form[key] as string | null | undefined) ?? ''}
-        onChange={e => { set(key, e.target.value); clr(key as string); }}
+        onChange={e => { set(key, individualNameKeys.has(key as string) ? fv.sanitizeIndividualName(e.target.value) : e.target.value); clr(key as string); }}
         placeholder={placeholder}
         disabled={disabled}
-        maxLength={addressFieldMaxLengths[key]}
+        maxLength={individualNameKeys.has(key as string) ? fv.INDIVIDUAL_NAME_MAX : addressFieldMaxLengths[key]}
         style={{ ...inputBase, border: `1px solid ${hasErr ? '#c62828' : '#aeb7c2'}`, background: disabled ? '#e5e5e5' : hasErr ? '#fff5f5' : '#f6f8fb' }}
       />
     );

@@ -168,6 +168,20 @@ export function checkName(e: Errors, key: string, value: string | undefined | nu
   if (!isValidName(value!)) e[key] = invalid(label);
 }
 
+// Individual name standard (SOTP-105): letters A-Z, hyphen, apostrophe, period, space and
+// á é í ó ú ñ ü ç (either case); no digits; max 50. Business names use a looser rule.
+export const INDIVIDUAL_NAME_MAX = 50;
+const INDIVIDUAL_NAME_DISALLOWED = /[^A-Za-z\-'‘’. áéíóúñüçÁÉÍÓÚÑÜÇ]/g;
+export const sanitizeIndividualName = (value: string) =>
+  value.replace(INDIVIDUAL_NAME_DISALLOWED, '').replace(/^\s+/, '').slice(0, INDIVIDUAL_NAME_MAX);
+const INDIVIDUAL_NAME_CHARS = /^[A-Za-z\-'‘’. áéíóúñüçÁÉÍÓÚÑÜÇ]+$/;
+export const isValidIndividualName = (name: string) =>
+  name.length <= INDIVIDUAL_NAME_MAX && !name.startsWith(' ') && INDIVIDUAL_NAME_CHARS.test(name);
+export function checkIndividualName(e: Errors, key: string, value: string | undefined | null, label: string, isRequired = false) {
+  if (isBlank(value)) { if (isRequired) e[key] = required(label); return; }
+  if (!isValidIndividualName(value!)) e[key] = invalid(label);
+}
+
 export function checkMaxLength(e: Errors, key: string, value: string | undefined | null, label: string, max: number) {
   if ((value?.length ?? 0) > max) e[key] = invalid(label);
 }
