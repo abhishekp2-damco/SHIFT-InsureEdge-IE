@@ -572,7 +572,7 @@ export default function AddAdjusterPage() {
 
             <Field label="Territory Type" required error={e.territoryType}>
               <div data-field-error={!!e.territoryType || undefined}>
-                {sel('territoryType', ['State', 'County', 'City'])}
+                {sel('territoryType', ['State'])}
               </div>
             </Field>
             <Field label="Territories Assigned" required error={e.territoriesAssigned}>
