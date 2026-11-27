@@ -590,6 +590,79 @@ label {
 .ap-breadcrumb__link:hover { text-decoration: underline; }
 .ap-breadcrumb__cur { color: #6b7280; }
 
+.add-adjuster-breadcrumb-link,
+.add-adjuster-breadcrumb-link:visited {
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.add-adjuster-breadcrumb-link:hover,
+.add-adjuster-breadcrumb-link:focus-visible,
+.add-adjuster-breadcrumb-link:active {
+  color: #0B5AA0;
+}
+
+.claims-config-info-banner {
+  position: fixed;
+  top: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  width: 288px;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 2px;
+  background: #0B5AA0;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.claims-config-info-banner__icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border-radius: 50%;
+  background: #fff;
+  color: #0B5AA0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  font-family: Arial, sans-serif;
+}
+
+.claims-config-info-banner__message {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.claims-config-info-banner__close {
+  width: 16px;
+  height: 28px;
+  flex: 0 0 16px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0;
+  line-height: 1;
+}
+
+.claims-config-info-banner__close::after {
+  content: '\00d7';
+  font-size: 22px;
+  font-weight: 200;
+}
+
 /* ── Content card (sidebar + panel) ── */
 .ap-content {
   display: flex; flex: 1; min-height: 500px;

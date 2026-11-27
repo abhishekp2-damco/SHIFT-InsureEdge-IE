@@ -69,44 +69,14 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: 64,
-      left: '50%',
-      transform: 'translateX(-50%)',
-      background: '#0d2137',
-      color: '#fff',
-      padding: '12px 18px',
-      borderRadius: 6,
-      fontSize: 13,
-      fontWeight: 500,
-      boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-      zIndex: 9999,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      minWidth: 360,
-      maxWidth: 500,
-    }}>
-      {/* Warning icon */}
-      <div style={{
-        flexShrink: 0,
-        width: 24, height: 24, borderRadius: '50%',
-        background: '#f59e0b',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 14, fontWeight: 800, color: '#fff',
-      }}>
-        !
-      </div>
-      <span style={{ flex: 1 }}>{message}</span>
-      {/* Close button */}
+    <div className="claims-config-info-banner" role="status">
+      <span className="claims-config-info-banner__icon" aria-hidden="true">i</span>
+      <span className="claims-config-info-banner__message">{message}</span>
       <button
+        className="claims-config-info-banner__close"
+        type="button"
         onClick={onDone}
-        style={{
-          flexShrink: 0, background: 'none', border: 'none',
-          color: '#fff', cursor: 'pointer', padding: '2px 4px',
-          fontSize: 16, lineHeight: 1, opacity: 0.8,
-        }}
+        aria-label="Close notification"
       >
         ✕
       </button>
@@ -234,13 +204,13 @@ export default function ClaimsMasterConfigPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
+              <th style={{ ...TH, width: 120, textAlign: 'right', cursor: 'default' }}>
+                Action
+              </th>
               {colOrder.map(key => {
                 const col = GRID_COLUMNS.find(item => item.key === key)!;
                 return <th {...headerProps(key)} key={key} style={{ ...TH, width: col.width, cursor: 'grab', opacity: draggingCol === key ? 0.55 : 1 }} onClick={() => handleSort(key)}>{col.label}<SortIcon active={sortKey === key} dir={sortKey === key ? sortDir : 'asc'} /></th>;
               })}
-              <th style={{ ...TH, width: 120, textAlign: 'right', cursor: 'default' }}>
-                Action
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -258,7 +228,6 @@ export default function ClaimsMasterConfigPage() {
               </tr>
             ) : rows.map(row => (
               <tr key={row.id} style={{ background: '#fff' }}>
-                {colOrder.map(key => <td key={key} style={{ ...TD, color: key === 'lastModifiedBy' && row.lastModifiedBy !== '-' ? '#0B5AA0' : key === 'tableName' ? '#111827' : '#374151' }}>{row[key]}</td>)}
                 <td style={{ ...TD, textAlign: 'right' }}>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                     <button
@@ -284,6 +253,7 @@ export default function ClaimsMasterConfigPage() {
                     </button>
                   </div>
                 </td>
+                {colOrder.map(key => <td key={key} style={{ ...TD, color: key === 'lastModifiedBy' && row.lastModifiedBy !== '-' ? '#0B5AA0' : key === 'tableName' ? '#111827' : '#374151' }}>{row[key]}</td>)}
               </tr>
             ))}
           </tbody>

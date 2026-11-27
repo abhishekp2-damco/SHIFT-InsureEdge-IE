@@ -312,21 +312,21 @@ export default function ClaimsMasterConfigEditPage() {
         <div style={{ border: '1px solid #e5e7eb', borderRadius: 4, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
             <colgroup>
+              <col style={{ width: '6%' }} />
               <col style={{ width: '22%' }} />
               <col style={{ width: '16%' }} />
               <col style={{ width: '16%' }} />
               <col style={{ width: '20%' }} />
               <col style={{ width: '20%' }} />
-              <col style={{ width: '6%' }} />
             </colgroup>
             <thead>
               <tr>
+                <th style={{ ...TH, textAlign: 'center' }}>Action</th>
                 <th style={TH}>{valueLabel}</th>
                 <th style={TH}>Enabled</th>
                 <th style={TH}>Default</th>
                 <th style={TH}>Effective From</th>
                 <th style={TH}>Effective To</th>
-                <th style={{ ...TH, textAlign: 'center' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -340,6 +340,17 @@ export default function ClaimsMasterConfigEditPage() {
                 </tr>
               ) : filteredRows.map(row => (
                 <tr key={row.localId}>
+                  {/* Action */}
+                  <td style={{ ...TD, textAlign: 'center' }}>
+                    <button
+                      onClick={() => deleteRow(row.localId)}
+                      title="Delete row"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, lineHeight: 1, display: 'inline-flex' }}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </td>
+
                   {/* Value Label */}
                   <td style={TD}>
                     <input
@@ -424,17 +435,6 @@ export default function ClaimsMasterConfigEditPage() {
                         <CalendarIcon />
                       </span>
                     </div>
-                  </td>
-
-                  {/* Action */}
-                  <td style={{ ...TD, textAlign: 'center' }}>
-                    <button
-                      onClick={() => deleteRow(row.localId)}
-                      title="Delete row"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 4, lineHeight: 1, display: 'inline-flex' }}
-                    >
-                      <TrashIcon />
-                    </button>
                   </td>
                 </tr>
               ))}

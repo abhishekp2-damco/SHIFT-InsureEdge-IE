@@ -35,7 +35,7 @@ public class AdjusterRepository : IAdjusterRepository
         var row = new TempAdjuster
         {
             ClientId = clientId,
-            UserCode = await NextUserCodeAsync(clientId),
+            UserCode = await GetNextUserCodeAsync(clientId),
             CreatedBy = userId,
             CreatedOn = DateTime.UtcNow
         };
@@ -61,7 +61,7 @@ public class AdjusterRepository : IAdjusterRepository
         return Map(row);
     }
 
-    private async Task<string> NextUserCodeAsync(long clientId)
+    public async Task<string> GetNextUserCodeAsync(long clientId)
     {
         var count = await _db.TempAdjusters.CountAsync(x => x.ClientId == clientId);
         return $"ADJ-{count + 1:000}";

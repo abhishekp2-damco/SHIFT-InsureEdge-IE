@@ -25,6 +25,10 @@ public class AdjustersController : ControllerBase
         return result == null ? NotFound() : Ok(result);
     }
 
+    [HttpGet("next-user-code")]
+    public async Task<IActionResult> GetNextUserCode() =>
+        Ok(new { userCode = await _adjusters.GetNextUserCodeAsync() });
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] UpsertTempAdjusterRequest req)
     {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { adjustersApi } from '../api/adjusters';
 import type { TempAdjusterLicenseDto, UpsertTempAdjusterRequest } from '../types/Adjuster';
 import SharedDatePicker from '../components/ui/DatePicker';
@@ -329,6 +329,7 @@ function MaskedSsnInput({ value, onChange, hasError }: {
   return (
     <input
       type="text"
+      inputMode="numeric"
       value={focused ? value : maskedDisplay(value)}
       onChange={e => onChange(formatSsnLike(e.target.value))}
       onFocus={() => setFocused(true)}
@@ -353,10 +354,10 @@ function FileBox({ compact }: { compact?: boolean }) {
   );
 }
 
-function SectionTitle({ title, icon = '-' }: { title: string; icon?: '+' | '-' }) {
+function SectionTitle({ title, icon = '-', showIcon = true }: { title: string; icon?: '+' | '-'; showIcon?: boolean }) {
   return (
     <h2 style={{ fontSize: 18, fontWeight: 800, color: '#111827', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid #111827', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, lineHeight: 1 }}>{icon}</span>
+      {showIcon && <span style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid #111827', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, lineHeight: 1 }}>{icon}</span>}
       {title}
     </h2>
   );
@@ -414,6 +415,15 @@ export default function AddAdjusterPage() {
   const [sameAddr, setSameAddr]   = useState(false);
   const [accessPerms, setAccessPerms] = useState<Record<string, string[]>>({});
   const [errors, setErrors]       = useState<Record<string, string>>({});
+  const [nextUserCode, setNextUserCode] = useState('---');
+
+  useEffect(() => {
+    let active = true;
+    adjustersApi.getNextUserCode()
+      .then(code => { if (active) setNextUserCode(code.replace(/^ADJ-/, '')); })
+      .catch(() => { if (active) setNextUserCode('---'); });
+    return () => { active = false; };
+  }, []);
 
   const togglePerm = (screen: string, perm: string, checked: boolean) =>
     setAccessPerms(prev => {
@@ -511,7 +521,12 @@ export default function AddAdjusterPage() {
   return (
     <div style={{ padding: '16px 16px 78px', background: '#fff', minHeight: '100%', position: 'relative' }}>
       <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0, color: '#111827' }}>Add Adjuster</h1>
-      <div style={{ fontSize: 12, color: '#0f172a', marginTop: 6, marginBottom: 16 }}>Adjuster Management / Primary Information</div>
+      <nav aria-label="Breadcrumb" style={{ fontSize: 12, color: '#0f172a', marginTop: 6, marginBottom: 16 }}>
+        <Link to="/claims/adjusters" className="add-adjuster-breadcrumb-link">
+          Adjuster Management
+        </Link>
+        {' / Primary Information'}
+      </nav>
       {saveError && <div style={{ marginBottom: 12, color: '#b91c1c', fontSize: 13 }}>{saveError}</div>}
 
       {/* ── Primary Info + Addresses ── */}
@@ -519,9 +534,9 @@ export default function AddAdjusterPage() {
 
         {/* Left column */}
         <div style={{ padding: 16, borderRight: '1px solid #d8dee6' }}>
-          <SectionTitle title="User Primary Information" />
+          <SectionTitle title="User Primary Information" showIcon={false} />
           <div style={{ marginTop: 16, height: 40, background: '#e3faef', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', fontSize: 13, color: '#006b3c' }}>
-            <strong>User ID - Auto</strong>
+            <strong>User ID - {nextUserCode}</strong>
             <span style={{ color: '#000', fontSize: 11 }}>Auto Generated</span>
           </div>
           <div style={{ marginTop: 16 }}>
@@ -549,7 +564,9 @@ export default function AddAdjusterPage() {
               </div>
             </Field>
 
-            <Field label="SSN">{inp('ssn')}</Field>
+            <Field label="SSN">
+              <MaskedSsnInput value={form.ssn ?? ''} onChange={v => set('ssn', v)} />
+            </Field>
             <Field label="Tax ID" required error={e.taxId}>
               <div data-field-error={!!e.taxId || undefined}>
                 <MaskedSsnInput value={form.taxId ?? ''} onChange={v => { set('taxId', v); clr('taxId'); }} hasError={!!e.taxId} />
@@ -635,7 +652,7 @@ export default function AddAdjusterPage() {
 
         {/* Right column: Addresses */}
         <div style={{ padding: 16 }}>
-          <SectionTitle title="Registered Address" />
+          <SectionTitle title="Registered Address" showIcon={false} />
           <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
             <Field label="Google Address Search"><input style={inputBase} /></Field>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
@@ -671,7 +688,7 @@ export default function AddAdjusterPage() {
 
           <div style={{ borderTop: '1px solid #d8dee6', marginTop: 16, paddingTop: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <SectionTitle title="Mailing Address" />
+              <SectionTitle title="Mailing Address" showIcon={false} />
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={sameAddr} onChange={ev => handleSameAddr(ev.target.checked)} style={{ width: 16, height: 16 }} />
                 Same as Registered Address

@@ -16,6 +16,7 @@ public class AdjusterService
 
     public Task<List<TempAdjusterDto>> GetAllAsync() => _repo.GetAllAsync(_tenant.ClientId);
     public Task<TempAdjusterDto?> GetByIdAsync(long id) => _repo.GetByIdAsync(id, _tenant.ClientId);
+    public Task<string> GetNextUserCodeAsync() => _repo.GetNextUserCodeAsync(_tenant.ClientId);
     public Task<TempAdjusterDto> CreateAsync(UpsertTempAdjusterRequest req) => _repo.CreateAsync(req, _tenant.ClientId, _tenant.UserId);
     public Task<TempAdjusterDto> UpdateAsync(long id, UpsertTempAdjusterRequest req) => _repo.UpdateAsync(id, req, _tenant.ClientId, _tenant.UserId);
 }

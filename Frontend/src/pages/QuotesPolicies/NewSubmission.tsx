@@ -2192,6 +2192,7 @@ function StepPolicyInfo({
           <table className="data-table policy-info-grid additional-insured-grid">
             {insuredPageRows.length > 0 && <thead>
               <tr>
+                <th>Action</th>
                 <SortTh label="Name"                     col="firstName"    sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('firstName')} />
                 <SortTh label="Relationship"             col="relationship" sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('relationship')} />
                 <SortTh label="Telephone Number"         col="telephone"    sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('telephone')} />
@@ -2199,7 +2200,6 @@ function StepPolicyInfo({
                 <SortTh label="Alternative Telephone No" col="altTelephone" sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('altTelephone')} />
                 <SortTh label="Insured Type"             col="insuredType"  sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('insuredType')} />
                 <SortTh label="DBA Name"                 col="dbaName"      sortCol={insuredSort?.col ?? null} sortDir={insuredSort?.dir ?? 'asc'} onSort={() => toggleInsuredSort('dbaName')} />
-                <th>Action</th>
               </tr>
             </thead>}
             <tbody>
@@ -2210,13 +2210,6 @@ function StepPolicyInfo({
               )}
               {insuredPageRows.map(ai => (
                 <tr key={ai.id}>
-                  <td>{[ai.firstName, ai.middleName, ai.lastName].filter(Boolean).join(' ')}</td>
-                  <td>{ai.relationship || '-'}</td>
-                  <td>{fv.formatPhoneView(ai.telephone) || '-'}</td>
-                  <td>{ai.email || '-'}</td>
-                  <td>{fv.formatPhoneView(ai.altTelephone) || '-'}</td>
-                  <td>{ai.insuredType}</td>
-                  <td>{ai.dbaName || '-'}</td>
                   <td>
                     <div className="policy-action-cell">
                       <button className="action-btn" title={canEditManualRow(ai) ? 'Edit' : 'Edit unavailable'} disabled={!canEditManualRow(ai)} onClick={() => setInsuredModal({ mode: 'edit', item: ai })}>
@@ -2227,6 +2220,13 @@ function StepPolicyInfo({
                       </button>
                     </div>
                   </td>
+                  <td>{[ai.firstName, ai.middleName, ai.lastName].filter(Boolean).join(' ')}</td>
+                  <td>{ai.relationship || '-'}</td>
+                  <td>{fv.formatPhoneView(ai.telephone) || '-'}</td>
+                  <td>{ai.email || '-'}</td>
+                  <td>{fv.formatPhoneView(ai.altTelephone) || '-'}</td>
+                  <td>{ai.insuredType}</td>
+                  <td>{ai.dbaName || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -2258,6 +2258,7 @@ function StepPolicyInfo({
         <table className="data-table policy-info-grid additional-org-grid">
           {orgPageRows.length > 0 && <thead>
             <tr>
+              <th>Action</th>
               <SortTh label="Org Name"                 col="orgName"          sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('orgName')} />
               <SortTh label="Org Type"                   col="orgType"          sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('orgType')} />
               <SortTh label="Telephone Number"           col="telephone"        sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('telephone')} />
@@ -2265,7 +2266,6 @@ function StepPolicyInfo({
               <SortTh label="Alternative Telephone No"   col="altTelephone"     sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('altTelephone')} />
               <SortTh label="Email ID"                   col="email"            sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('email')} />
               <SortTh label="Contact Name"               col="contactFirstName" sortCol={orgSort?.col ?? null} sortDir={orgSort?.dir ?? 'asc'} onSort={() => toggleOrgSort('contactFirstName')} />
-              <th>Action</th>
             </tr>
           </thead>}
           <tbody>
@@ -2276,6 +2276,16 @@ function StepPolicyInfo({
             )}
             {orgPageRows.map(org => (
               <tr key={org.id}>
+                <td>
+                  <div className="policy-action-cell">
+                    <button className="action-btn" title={canEditManualRow(org) ? 'Edit' : 'Edit unavailable'} disabled={!canEditManualRow(org)} onClick={() => setOrgModal({ mode: 'edit', item: org })}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                    </button>
+                    <button className="action-btn action-btn-danger" title={canEditManualRow(org) ? 'Delete' : 'Delete unavailable'} disabled={!canEditManualRow(org)} onClick={() => setOrgDeleteId(org.id)}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                  </div>
+                </td>
                 <td>{org.orgName}</td>
                 <td>{org.orgType}</td>
                 <td>{fv.formatPhoneView(org.telephone) || '-'}</td>
@@ -2287,16 +2297,6 @@ function StepPolicyInfo({
                 </td>
                 <td>{org.email || '-'}</td>
                 <td>{[org.contactFirstName, org.contactMiddleName, org.contactLastName].filter(Boolean).join(' ') || '-'}</td>
-                <td>
-                  <div className="policy-action-cell">
-                    <button className="action-btn" title={canEditManualRow(org) ? 'Edit' : 'Edit unavailable'} disabled={!canEditManualRow(org)} onClick={() => setOrgModal({ mode: 'edit', item: org })}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                    </button>
-                    <button className="action-btn action-btn-danger" title={canEditManualRow(org) ? 'Delete' : 'Delete unavailable'} disabled={!canEditManualRow(org)} onClick={() => setOrgDeleteId(org.id)}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                    </button>
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -2709,8 +2709,9 @@ function StepRiskInfo({ form, set, mortgages, setMortgages, isLoggedInUserProduc
       <table className="mini-table risk-info-mortgage-table">
         {mortgages.length > 0 && <thead>
           <tr>
+            <th>Action</th>
             <th>Mortgage Name</th><th>Loan Type</th><th>Address</th>
-            <th>Telephone Number</th><th>Email ID</th><th>Action</th>
+            <th>Telephone Number</th><th>Email ID</th>
           </tr>
         </thead>}
         <tbody>
@@ -2719,17 +2720,17 @@ function StepRiskInfo({ form, set, mortgages, setMortgages, isLoggedInUserProduc
           )}
           {mortgages.map(m => (
             <tr key={m.id}>
-              <td>{m.name}</td>
-              <td>{m.loanType}</td>
-              <td className="mortgage-address-cell">{mortgageAddressDisplay(m)}</td>
-              <td>{mortgagePhoneDisplay(m)}</td>
-              <td>{m.email}</td>
               <td>
                 <div className="policy-action-cell">
                   <button className="action-btn mortgage-view-action" title={form.lockSubmission ? "Locked - Cannot view" : "View"} onClick={() => !form.lockSubmission && setViewId(m.id)} disabled={form.lockSubmission} style={{ opacity: form.lockSubmission ? 0.3 : 1, cursor: form.lockSubmission ? 'not-allowed' : 'pointer', filter: form.lockSubmission ? 'grayscale(100%)' : 'none', pointerEvents: form.lockSubmission ? 'none' : 'auto' }}>&#128065;</button>
                   <button className="action-btn" title={form.lockSubmission ? "Locked - Cannot delete" : "Delete"} style={{ color: form.lockSubmission ? '#a8a8a8' : '#dc2626', opacity: form.lockSubmission ? 0.3 : 1, cursor: form.lockSubmission ? 'not-allowed' : 'pointer', filter: form.lockSubmission ? 'grayscale(100%)' : 'none', pointerEvents: form.lockSubmission ? 'none' : 'auto' }} onClick={() => !form.lockSubmission && setDeleteId(m.id)} disabled={form.lockSubmission}>&#128465;</button>
                 </div>
               </td>
+              <td>{m.name}</td>
+              <td>{m.loanType}</td>
+              <td className="mortgage-address-cell">{mortgageAddressDisplay(m)}</td>
+              <td>{mortgagePhoneDisplay(m)}</td>
+              <td>{m.email}</td>
             </tr>
           ))}
         </tbody>

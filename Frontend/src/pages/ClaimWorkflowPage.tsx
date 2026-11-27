@@ -1301,9 +1301,9 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
   const selectStyle: React.CSSProperties = { ...inputStyle };
 
   // Reserve column widths (11 cols): add up to 100%
-  const reserveColWidths = ['11%', '8%', '12%', '8%', '7%', '12%', '8%', '8%', '9%', '9%', '5%'];
+  const reserveColWidths = ['5%', '11%', '8%', '12%', '8%', '7%', '12%', '8%', '8%', '9%', '9%'];
   // Payment column widths (7 cols)
-  const paymentColWidths = ['14%', '18%', '13%', '18%', '18%', '12%', '5%'];
+  const paymentColWidths = ['5%', '14%', '18%', '13%', '18%', '18%', '12%'];
 
   return (
     <div>
@@ -1358,7 +1358,7 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
               </colgroup>
               <thead>
                 <tr>
-                  {['Coverage', 'Coverage Limit', 'Cause of Loss Description', 'Cause of Loss Code', 'Loss Limit', 'Impacted Asset Description', 'Impacted Asset Code', 'Impacted Asset Limit', 'Superseding Limit', 'Reserve Amount', 'Action'].map(h => (
+                  {['Action', 'Coverage', 'Coverage Limit', 'Cause of Loss Description', 'Cause of Loss Code', 'Loss Limit', 'Impacted Asset Description', 'Impacted Asset Code', 'Impacted Asset Limit', 'Superseding Limit', 'Reserve Amount'].map(h => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
@@ -1366,6 +1366,11 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
               <tbody>
                 {reserves.map((r, i) => (
                   <tr key={i}>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <button onClick={() => setReserves(prev => prev.filter((_, j) => j !== i))} title='Remove' style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}>
+                        <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' /></svg>
+                      </button>
+                    </td>
                     <td style={tdStyle}><select style={selectStyle} value={r.coverage} onChange={e => { const opt = worksheetCoverageOptions.find(o => o.name === e.target.value); if (opt) handleReserveCoverageChange(i, opt); }}><option value=''>Select...</option>{worksheetCoverageOptions.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></td>
                     <td style={tdStyle}><input style={{ ...inputStyle, background: '#f5f7fa', color: '#6b7280' }} value={r.coverageLimit} readOnly /></td>
                     <td style={tdStyle}><select style={selectStyle} value={r.causeOfLossDescription} onChange={e => { const opt = wsColOptions.find(o => o.name === e.target.value); if (opt) handleReserveColChange(i, opt); }}><option value=''>Select...</option>{wsColOptions.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></td>
@@ -1376,17 +1381,12 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
                     <td style={tdStyle}><input style={{ ...inputStyle, background: '#f5f7fa', color: '#6b7280' }} value={r.liabilityLimit} readOnly /></td>
                     <td style={tdStyle}><input style={{ ...inputStyle, background: '#f5f7fa', color: '#6b7280' }} value={r.supersedingLimit} readOnly /></td>
                     <td style={tdStyle}><input style={inputStyle} value={r.reserveAmount} onChange={e => updateReserve(i, { reserveAmount: e.target.value })} /></td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <button onClick={() => setReserves(prev => prev.filter((_, j) => j !== i))} title='Remove' style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}>
-                        <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' /></svg>
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 <tr style={{ background: '#f8fafc' }}>
+                  <td style={tdStyle} />
                   <td colSpan={9} style={{ ...tdStyle, fontWeight: 700, color: '#111827' }}>Total</td>
                   <td style={{ ...tdStyle, fontWeight: 700, color: '#111827' }}>{fmtAmt(reserveTotal)}</td>
-                  <td style={tdStyle} />
                 </tr>
               </tbody>
             </table>
@@ -1433,7 +1433,7 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
               </colgroup>
               <thead>
                 <tr>
-                  {['Coverage', 'Cause of Loss Description', 'Payee Type', 'Payee Name', 'Liability Claim', 'Payment Amount', 'Action'].map(h => (
+                  {['Action', 'Coverage', 'Cause of Loss Description', 'Payee Type', 'Payee Name', 'Liability Claim', 'Payment Amount'].map(h => (
                     <th key={h} style={thStyle}>{h}</th>
                   ))}
                 </tr>
@@ -1441,29 +1441,29 @@ function WsFormContent({ ws, claimId, onDone }: { ws: Worksheet | null; claimId:
               <tbody>
                 {payments.map((p, i) => (
                   <tr key={i}>
+                    <td style={{ ...tdStyle, textAlign: 'center' }}>
+                      <button onClick={() => setPayments(prev => prev.filter((_, j) => j !== i))} title='Remove' style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}>
+                        <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' /></svg>
+                      </button>
+                    </td>
                     <td style={tdStyle}><select style={selectStyle} value={p.coverage} onChange={e => updatePayment(i, 'coverage', e.target.value)}><option value=''>Select...</option>{worksheetCoverageOptions.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></td>
                     <td style={tdStyle}><select style={selectStyle} value={p.causeOfLossDescription} onChange={e => updatePayment(i, 'causeOfLossDescription', e.target.value)}><option value=''>Select...</option>{wsColOptions.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></td>
                     <td style={tdStyle}><select style={selectStyle} value={p.payeeType} onChange={e => updatePayment(i, 'payeeType', e.target.value)}><option value=''>Select...</option>{PAYEE_TYPE_OPTIONS.map(o => <option key={o}>{o}</option>)}</select></td>
                     <td style={tdStyle}><input style={inputStyle} value={p.payeeName} onChange={e => updatePayment(i, 'payeeName', e.target.value)} /></td>
                     <td style={tdStyle}><select style={selectStyle} value={p.liabilityClaim} onChange={e => updatePayment(i, 'liabilityClaim', e.target.value)}><option value=''>Select...</option>{worksheetCoverageOptions.map(o => <option key={o.id} value={o.name}>{o.name}</option>)}</select></td>
                     <td style={tdStyle}><input style={inputStyle} value={p.paymentAmount} onChange={e => updatePayment(i, 'paymentAmount', e.target.value)} /></td>
-                    <td style={{ ...tdStyle, textAlign: 'center' }}>
-                      <button onClick={() => setPayments(prev => prev.filter((_, j) => j !== i))} title='Remove' style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: 2 }}>
-                        <svg width='15' height='15' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2'><path d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6' /></svg>
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 <tr style={{ background: '#f8fafc' }}>
+                  <td style={tdStyle} />
                   <td style={tdStyle}>Deductible</td>
                   <td colSpan={4} style={tdStyle} />
                   <td style={tdStyle}><input style={inputStyle} defaultValue='0.00' /></td>
-                  <td style={tdStyle} />
                 </tr>
                 <tr style={{ background: '#f8fafc' }}>
+                  <td style={tdStyle} />
                   <td colSpan={5} style={{ ...tdStyle, fontWeight: 700, color: '#111827' }}>Total</td>
                   <td style={{ ...tdStyle, fontWeight: 700, color: '#111827' }}>{fmtAmt(paymentTotal)}</td>
-                  <td style={tdStyle} />
                 </tr>
               </tbody>
             </table>
@@ -4156,6 +4156,7 @@ function ClaimLettersContent({ claimId, view, onViewChange }: { claimId: number;
               <tr><td colSpan={1 + visibleDefs.length} style={{ height: 280, textAlign: 'center', fontSize: 15, fontWeight: 700, color: '#111827' }}>No Data Available</td></tr>
             ) : filtered.map((row, i) => (
               <tr key={row.id} style={{ background: i % 2 === 0 ? '#fff' : '#f9fafb', borderBottom: '1px solid #f3f4f6' }}>
+                <td aria-hidden="true" style={{ width: 42, padding: '8px 10px', borderRight: '1px solid #e5e7eb' }} />
                 <td style={{ padding: '8px 10px', borderRight: '1px solid #e5e7eb', textAlign: 'center', whiteSpace: 'nowrap' }}>
                   <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                     <button title="Edit" onClick={() => handleEdit(row)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0B5AA0', padding: '2px 4px' }}>
@@ -4171,10 +4172,9 @@ function ClaimLettersContent({ claimId, view, onViewChange }: { claimId: number;
                     </button>
                   </div>
                 </td>
-                {visibleDefs.map(col => {
+                {visibleDefs.filter(col => col.key !== 'action').map(col => {
                   let cell: React.ReactNode = '';
-                  if (col.key === 'action') cell = '';
-                  else if (col.key === 'letterType') cell = <span style={{ fontWeight: 500 }}>{row.letterType ?? '-'}</span>;
+                  if (col.key === 'letterType') cell = <span style={{ fontWeight: 500 }}>{row.letterType ?? '-'}</span>;
                   else if (col.key === 'letterDate') cell = row.letterDate ?? '-';
                   else if (col.key === 'sendDate') cell = row.sendDate
                     ? <span style={{ color: '#16a34a', fontWeight: 500 }}>{row.sendDate}</span>

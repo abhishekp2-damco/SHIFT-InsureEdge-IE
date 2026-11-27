@@ -107,39 +107,40 @@ function ClaimsWidgetTable({
   return (
     <section style={{ border: '1px solid #d8e1ea', borderRadius: 6, padding: '14px 16px 16px', background: '#fff' }}>
       <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>{title}</h3>
-      {rows.length === 0
-        ? <div style={{ textAlign: 'center', padding: '28px 0', color: '#94a3b8', fontSize: 13 }}>No Data Available</div>
-        : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>
-                {headers.map(h => (
-                  <th key={h} style={{ background: '#e6f0f6', padding: '12px 16px', border: '1px solid #d7dee6', textAlign: h === lastHeader ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i}>
-                  <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>
-                    <button onClick={() => onClaimClick(row)} style={{ background: 'none', border: 'none', padding: 0, color: '#005da8', cursor: 'pointer', fontSize: 13, fontFamily: 'monospace' }}>
-                      {row.claim_number || '—'}
-                    </button>
-                  </td>
-                  <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>
-                    {row.policy_number
-                      ? <button onClick={() => onPolicyClick(row.policy_number!)} style={{ background: 'none', border: 'none', padding: 0, color: '#005da8', cursor: 'pointer', fontSize: 13 }}>{row.policy_number}</button>
-                      : '—'}
-                  </td>
-                  <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>{row.claim_type || '—'}</td>
-                  <td style={{ padding: '8px 16px', border: '1px solid #d7dee6', textAlign: 'right' }}>
-                    {row.claim_estimate ?? row.claim_incurred ?? '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr>
+            {headers.map(h => (
+              <th key={h} style={{ background: '#e6f0f6', padding: '12px 16px', border: '1px solid #d7dee6', textAlign: h === lastHeader ? 'right' : 'left', fontWeight: 700 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={headers.length} style={{ padding: '28px 8px', border: '1px solid #d7dee6', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No Data Available</td>
+            </tr>
+          )}
+          {rows.map((row, i) => (
+            <tr key={i}>
+              <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>
+                <button onClick={() => onClaimClick(row)} style={{ background: 'none', border: 'none', padding: 0, color: '#005da8', cursor: 'pointer', fontSize: 13, fontFamily: 'monospace' }}>
+                  {row.claim_number || '—'}
+                </button>
+              </td>
+              <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>
+                {row.policy_number
+                  ? <button onClick={() => onPolicyClick(row.policy_number!)} style={{ background: 'none', border: 'none', padding: 0, color: '#005da8', cursor: 'pointer', fontSize: 13 }}>{row.policy_number}</button>
+                  : '—'}
+              </td>
+              <td style={{ padding: '8px 16px', border: '1px solid #d7dee6' }}>{row.claim_type || '—'}</td>
+              <td style={{ padding: '8px 16px', border: '1px solid #d7dee6', textAlign: 'right' }}>
+                {row.claim_estimate ?? row.claim_incurred ?? '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }
