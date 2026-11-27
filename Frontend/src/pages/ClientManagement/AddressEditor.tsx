@@ -41,9 +41,8 @@ export function AddressEditor({ value, onChange, errors = {}, disabled }: {
     if (field === 'googleSearch') { setGoogleSearch(String(next)); return; }
     if (field === 'enterManually') {
       const manual = Boolean(next);
-      const hasEnteredAddress = [value.addressLine1, value.addressLine2, value.state, value.city, value.county,
-        value.zipCode, value.latitude, value.longitude].some(part => String(part ?? '').trim());
-      if (!manual && value.isManual && hasEnteredAddress) { setConfirmManualOff(true); return; }
+      // Always confirm when unchecking a checked box, even if the fields are empty.
+      if (!manual && value.isManual) { setConfirmManualOff(true); return; }
       onChange(prev => ({ ...prev, isManual: manual })); return;
     }
     onChange(prev => {
@@ -99,6 +98,7 @@ export function AddressEditor({ value, onChange, errors = {}, disabled }: {
       maxLengths={MAX_LENGTHS}
       coordinatesReadOnly={false}
       trailingColumns={3}
+      confirmUncheck={false}
     />
     {confirmManualOff && <div style={{ position: 'fixed', inset: 0, zIndex: 1400, background: 'rgba(0,0,0,.25)', display: 'grid', placeItems: 'center' }}>
       <div role="dialog" aria-modal="true" aria-labelledby="discard-address-title" style={{ width: 250, background: '#fff', borderRadius: 5, boxShadow: '0 5px 16px rgba(0,0,0,.22)', padding: '14px 13px 10px', textAlign: 'center' }}>
